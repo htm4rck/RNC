@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -60,9 +61,16 @@ def create_app() -> FastAPI:
 
     static_files_dir = Path(settings.static_files_dir)
     if static_files_dir.exists():
+        ui_prefix = normalize_mount_path(settings.ui_prefix)
         sync_index_base_href(static_files_dir, settings.ui_prefix)
+        if ui_prefix != "/":
+
+            @app.get(ui_prefix, include_in_schema=False)
+            def serve_ui_index() -> FileResponse:
+                return FileResponse(static_files_dir / "index.html")
+
         app.mount(
-            normalize_mount_path(settings.ui_prefix),
+            ui_prefix,
             StaticFiles(directory=static_files_dir, html=True),
             name="web",
         )
