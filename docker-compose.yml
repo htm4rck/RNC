@@ -1,0 +1,65 @@
+# Remote Career Navigator - stack completo
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: rcn_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - ${POSTGRES_DATA_PATH:-./data/postgres}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - rcn_net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        UI_PREFIX: ${UI_PREFIX:-/}
+    image: rcn_app:${APP_VERSION:-latest}
+    container_name: rcn_app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: ${PORT:-8050}
+      RCN_APP_NAME: ${RCN_APP_NAME:-Remote Career Navigator API}
+      RCN_APP_VERSION: ${RCN_APP_VERSION:-0.1.0}
+      RCN_DATABASE_URL: ${RCN_DATABASE_URL}
+      RCN_CORS_ORIGINS: ${RCN_CORS_ORIGINS:-["http://localhost:4200","http://localhost:8050"]}
+      RCN_STATIC_FILES_DIR: /app/public
+      RCN_UI_PREFIX: ${UI_PREFIX:-/}
+    ports:
+      - "${HOST_PORT:-8050}:${PORT:-8050}"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-8050}/api/health', timeout=5).read()\" || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - rcn_net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  rcn_net:
+    driver: bridge
