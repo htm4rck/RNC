@@ -43,39 +43,135 @@ h1 {
 
 .workspace {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  gap: 24px;
   margin-top: 56px;
+  align-items: start;
 }
 
-article {
-  min-height: 220px;
+.profile-form,
+.profiles {
   padding: 24px;
   border: 1px solid #d7d3c9;
   border-radius: 8px;
   background: #ffffff;
 }
 
-article span {
-  display: inline-grid;
-  width: 40px;
-  height: 40px;
-  place-items: center;
-  border-radius: 999px;
-  background: #18202a;
-  color: #ffffff;
-  font-weight: 800;
+.section-header {
+  margin-bottom: 22px;
 }
 
 h2 {
-  margin: 28px 0 12px;
-  font-size: 1.15rem;
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.profile-form {
+  display: grid;
+  gap: 16px;
+}
+
+label {
+  display: grid;
+  gap: 8px;
+  color: #334155;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+input,
+select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0 12px;
+  background: #ffffff;
+  color: #18202a;
+  font: inherit;
+}
+
+input:focus,
+select:focus {
+  border-color: #0f766e;
+  outline: 3px solid rgba(15, 118, 110, 0.16);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+button {
+  min-height: 46px;
+  border: 0;
+  border-radius: 6px;
+  background: #18202a;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.error {
+  margin: 0;
+  color: #b42318;
+  font-weight: 700;
+}
+
+.empty {
+  margin: 0;
+  color: #566170;
+}
+
+.profile-list {
+  display: grid;
+  gap: 14px;
+}
+
+article {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+h3 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
 }
 
 article p {
   margin: 0;
   color: #566170;
-  line-height: 1.55;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+dt {
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+dd {
+  margin: 4px 0 0;
+  color: #18202a;
+  font-weight: 800;
 }
 
 @media (max-width: 760px) {
@@ -84,6 +180,11 @@ article p {
   }
 
   .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid,
+  dl {
     grid-template-columns: 1fr;
   }
 }

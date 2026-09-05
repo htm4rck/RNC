@@ -8,22 +8,91 @@
     </p>
   </section>
 
-  <section class="workspace" aria-label="Primer flujo del producto">
-    <article>
-      <span>01</span>
-      <h2>Perfil profesional</h2>
-      <p>Carga tu CV y estructura experiencia, skills, seniority e idiomas.</p>
-    </article>
-    <article>
-      <span>02</span>
-      <h2>Analisis de oferta</h2>
-      <p>Pega una descripcion laboral y entiende requisitos, salario e ingles.</p>
-    </article>
-    <article>
-      <span>03</span>
-      <h2>Match y aplicacion</h2>
-      <p>Obtiene score, gaps, fortalezas y mensajes listos para recruiters.</p>
-    </article>
+  <section class="workspace" aria-label="Perfil profesional">
+    <form class="profile-form" [formGroup]="profileForm" (ngSubmit)="createProfile()">
+      <div class="section-header">
+        <p class="eyebrow">Primer flujo</p>
+        <h2>Crear perfil profesional</h2>
+      </div>
+
+      <label>
+        Nombre completo
+        <input type="text" formControlName="full_name" placeholder="Marc Demo">
+      </label>
+
+      <label>
+        Titular profesional
+        <input type="text" formControlName="headline" placeholder="Senior Software Engineer">
+      </label>
+
+      <div class="form-grid">
+        <label>
+          Pais
+          <input type="text" formControlName="country" placeholder="Peru">
+        </label>
+
+        <label>
+          Anos de experiencia
+          <input type="number" min="0" max="60" formControlName="years_experience">
+        </label>
+      </div>
+
+      <label>
+        Nivel de ingles
+        <select formControlName="english_level">
+          <option value="Basic">Basic</option>
+          <option value="Intermediate">Intermediate</option>
+          <option value="Advanced">Advanced</option>
+          <option value="Fluent">Fluent</option>
+        </select>
+      </label>
+
+      <button type="submit" [disabled]="savingProfile">
+        {{ savingProfile ? 'Guardando...' : 'Guardar perfil' }}
+      </button>
+
+      @if (errorMessage) {
+        <p class="error">{{ errorMessage }}</p>
+      }
+    </form>
+
+    <section class="profiles">
+      <div class="section-header">
+        <p class="eyebrow">Base de datos</p>
+        <h2>Perfiles guardados</h2>
+      </div>
+
+      @if (loadingProfiles) {
+        <p class="empty">Cargando perfiles...</p>
+      } @else if (profiles.length === 0) {
+        <p class="empty">Aun no hay perfiles registrados.</p>
+      } @else {
+        <div class="profile-list">
+          @for (profile of profiles; track profile.id) {
+            <article>
+              <div>
+                <h3>{{ profile.full_name }}</h3>
+                <p>{{ profile.headline }}</p>
+              </div>
+              <dl>
+                <div>
+                  <dt>Pais</dt>
+                  <dd>{{ profile.country }}</dd>
+                </div>
+                <div>
+                  <dt>Experiencia</dt>
+                  <dd>{{ profile.years_experience }} anos</dd>
+                </div>
+                <div>
+                  <dt>Ingles</dt>
+                  <dd>{{ profile.english_level }}</dd>
+                </div>
+              </dl>
+            </article>
+          }
+        </div>
+      }
+    </section>
   </section>
 
   <router-outlet />
