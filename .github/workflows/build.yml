@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     branches:
+      - develop
       - main
       - master
   pull_request:
@@ -96,7 +97,10 @@ jobs:
             if [[ "${{ github.event_name }}" == "push" ]]; then
               echo "$image:$ref"
             fi
-            if [[ "${{ github.event_name }}" == "push" && "$ref" == "main" ]]; then
+            if [[ "${{ github.event_name }}" == "push" && "$ref" == "develop" ]]; then
+              echo "$image:main"
+            fi
+            if [[ "${{ github.event_name }}" == "push" && ( "$ref" == "main" || "$ref" == "develop" ) ]]; then
               echo "$image:latest"
             fi
             echo "EOF"
