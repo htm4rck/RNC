@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -14,6 +15,25 @@ def normalize_mount_path(path: str) -> str:
     if not normalized or normalized == "/":
         return "/"
     return "/" + normalized.strip("/")
+
+
+def normalize_base_href(path: str) -> str:
+    normalized = normalize_mount_path(path)
+    if normalized == "/":
+        return "/"
+    return f"{normalized}/"
+
+
+def sync_index_base_href(static_files_dir: Path, ui_prefix: str) -> None:
+    index_path = static_files_dir / "index.html"
+    if not index_path.is_file():
+        return
+
+    html = index_path.read_text(encoding="utf-8")
+    base_href = normalize_base_href(ui_prefix)
+    updated_html = re.sub(r'<base\s+href="[^"]*"\s*/?>', f'<base href="{base_href}">', html)
+    if updated_html != html:
+        index_path.write_text(updated_html, encoding="utf-8")
 
 
 def create_app() -> FastAPI:
@@ -40,6 +60,7 @@ def create_app() -> FastAPI:
 
     static_files_dir = Path(settings.static_files_dir)
     if static_files_dir.exists():
+        sync_index_base_href(static_files_dir, settings.ui_prefix)
         app.mount(
             normalize_mount_path(settings.ui_prefix),
             StaticFiles(directory=static_files_dir, html=True),

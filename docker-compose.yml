@@ -25,7 +25,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        UI_PREFIX: ${UI_PREFIX:-/}
+        UI_PREFIX: ${RCN_UI_PREFIX:-${UI_PREFIX:-/}}
     image: rcn_app:${APP_VERSION:-latest}
     container_name: rcn_app
     restart: unless-stopped
@@ -39,7 +39,7 @@ services:
       RCN_DATABASE_URL: ${RCN_DATABASE_URL}
       RCN_CORS_ORIGINS: ${RCN_CORS_ORIGINS:-["http://localhost:4200","http://localhost:8050"]}
       RCN_STATIC_FILES_DIR: /app/public
-      RCN_UI_PREFIX: ${UI_PREFIX:-/}
+      RCN_UI_PREFIX: ${RCN_UI_PREFIX:-${UI_PREFIX:-/}}
     ports:
       - "${HOST_PORT:-8050}:${PORT:-8050}"
     healthcheck:
