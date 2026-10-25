@@ -27,6 +27,11 @@ def parser() -> argparse.ArgumentParser:
     ):
         action = commands.add_parser(command, help=help_text)
         action.add_argument("--url", help="URL del perfil o de la vacante en LinkedIn.")
+        if command == "capture-profile":
+            action.add_argument(
+                "--no-scroll", action="store_true",
+                help="Lee solo el contenido ya renderizado, sin desplazar la página.",
+            )
         if command == "inspect-application":
             action.add_argument("--open", action="store_true", help="Abre Easy Apply con un clic.")
     track = commands.add_parser("track", help="Registra manualmente el estado de una candidatura.")
@@ -68,7 +73,7 @@ def run(args: argparse.Namespace) -> dict | list:
         if args.command == "inspect-profile":
             return inspect_profile(driver)
         elif args.command == "capture-profile":
-            content = read_profile(driver)
+            content = read_profile(driver, scroll=not args.no_scroll)
         elif args.command == "capture-job":
             content = read_job(driver)
         else:

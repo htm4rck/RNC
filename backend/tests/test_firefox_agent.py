@@ -189,6 +189,133 @@ def test_profile_diagnostic_handles_missing_main(driver):
     assert diagnostic["headings"] == []
 
 
+@pytest.mark.parametrize("labels", [
+    ("About", "Experience", "Education", "Skills"),
+    ("Acerca de", "Experiencia", "Educación", "Conocimientos y aptitudes"),
+])
+def test_sdui_profile_reads_sections_without_legacy_ids_or_classes(driver, labels):
+    from app.local_agent.linkedin import read_profile
+
+    about, experience, education, skills = labels
+    load_html(driver, f"""
+        <main>
+          <section><div id="com.linkedin.sdui.profile.card.refDemoTopcard">
+            <section><h2 class="l4jk8d l4jk37">Marc Demo</h2>
+            <p class="l4jk8d l4jk33">Senior Software Engineer</p>
+            <p>Lima, Peru</p></section></div></section>
+          <section><h2>Suggested for you</h2><p>Unrelated suggestions</p></section>
+          <section><h2>Analytics</h2><p>123 profile views</p></section>
+          <section><h2 class="l4jk8d">{about}</h2><p>I build useful systems.</p></section>
+          <section><h2>Activity</h2><p>Unrelated post content</p></section>
+          <section><h2>{experience}</h2><h3>Engineer at Example</h3>
+            <p>Built Python services.</p></section>
+          <section><h2>{education}</h2><p>Example University</p></section>
+          <section><h2>{skills}</h2><p>Python</p><p>PostgreSQL</p></section>
+        </main>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/in/marc-demo/")
+    profile = read_profile(fixture, scroll=False)
+    assert profile["headline"] == "Senior Software Engineer"
+    assert "I build useful systems." in profile["about"]
+    assert "Built Python services." in profile["experience"]
+    assert "Example University" in profile["education"]
+    assert "PostgreSQL" in profile["skills"]
+    assert profile["capture_status"] == "captured"
+    assert profile["warnings"] == []
+    assert profile["field_sources"]["about"] == f"heading:{about}"
+    assert "Unrelated" not in json.dumps(profile)
+    assert "123 profile views" not in json.dumps(profile)
+
+
+def test_profile_reads_div_cards_and_accessible_headings_without_section_tags(driver):
+    from app.local_agent.linkedin import read_profile
+
+    load_html(driver, """
+        <main><h1>Marc Demo</h1><p>Software Engineer</p>
+        <div><div role="heading" aria-level="2">About</div><p>My biography.</p></div>
+        <div><div role="heading" aria-level="2">Experience</div>
+        <h3>Senior Engineer</h3><p>Example Company</p></div>
+        <div><h2>Interests</h2><p>Unrelated interests</p></div></main>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/in/marc-demo/")
+    profile = read_profile(fixture, scroll=False)
+    assert profile["headline"] == "Software Engineer"
+    assert "My biography." in profile["about"]
+    assert "Example Company" in profile["experience"]
+    assert "Unrelated interests" not in json.dumps(profile)
+    assert profile["capture_status"] == "partial"
+    assert profile["field_status"]["education"] == "not_detected"
+    assert "education" in profile["warnings"][0]
+
+
+def test_profile_with_only_name_does_not_return_success(driver):
+    from app.local_agent.linkedin import read_profile
+
+    load_html(driver, "<main><section><h2>Marc Demo</h2></section></main>")
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/in/marc-demo/")
+    with pytest.raises(RuntimeError, match="no se guardó"):
+        read_profile(fixture, scroll=False)
+
+
+def test_lazy_sections_are_captured_and_original_page_scroll_is_restored(driver):
+    from app.local_agent.linkedin import read_profile
+
+    load_html(driver, """
+        <style>body {margin:0} main {min-height:2400px}</style>
+        <main><section><h2>Marc Demo</h2><p>Software Engineer</p></section>
+          <section><h2>About</h2><p>I build services.</p></section>
+          <section><h2>Experience</h2><p>Example Company</p></section>
+        </main>
+        <script>
+          window.addEventListener('scroll', () => {
+            if (window.scrollY > 350 && !document.querySelector('#loaded')) {
+              document.querySelector('main').insertAdjacentHTML('beforeend',
+                '<div id="loaded"><section><h2>Education</h2><p>Example University</p></section>'
+                + '<section><h2>Skills</h2><p>Python</p></section></div>');
+            }
+          });
+        </script>
+    """)
+    driver.execute_script("window.scrollTo({top:100, behavior:'instant'});")
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/in/marc-demo/")
+    profile = read_profile(fixture)
+    assert profile["capture_status"] == "captured"
+    assert "Example University" in profile["education"]
+    assert "Python" in profile["skills"]
+    assert driver.execute_script("return window.scrollY") == 100
+
+
+def test_internal_scroll_and_virtualized_header_preserve_earlier_fields(driver):
+    from app.local_agent.linkedin import read_profile
+
+    load_html(driver, """
+        <main style="height:300px; overflow-y:auto">
+          <section id="intro"><h2>Marc Demo</h2><p>Software Engineer</p></section>
+          <section><h2>About</h2><p>I build services.</p></section>
+          <section><h2>Experience</h2><p>Example Company</p></section>
+          <div style="height:1000px"></div>
+        </main>
+        <script>
+          const main = document.querySelector('main');
+          main.addEventListener('scroll', () => {
+            if (main.scrollTop > 150 && !document.querySelector('#loaded')) {
+              document.querySelector('#intro').remove();
+              main.insertAdjacentHTML('beforeend',
+                '<div id="loaded"><section><h2>Education</h2><p>Example University</p></section>'
+                + '<section><h2>Skills</h2><p>Python</p></section></div>');
+            }
+          });
+        </script>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/in/marc-demo/")
+    profile = read_profile(fixture)
+    assert profile["full_name"] == "Marc Demo"
+    assert profile["headline"] == "Software Engineer"
+    assert "Example University" in profile["education"]
+    assert "Python" in profile["skills"]
+    assert driver.execute_script("return document.querySelector('main').scrollTop") == 0
+
+
 def test_job_and_application_only_open_and_inspect_visible_step(driver):
     from app.local_agent.linkedin import inspect_application, read_job
 

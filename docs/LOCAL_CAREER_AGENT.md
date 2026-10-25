@@ -27,8 +27,8 @@ MCP y la integración con Angular son entregas futuras.
 | Comando | Resultado |
 | --- | --- |
 | `doctor` | Diagnóstico de Firefox, geckodriver y puerto Marionette. |
-| `capture-profile` | Captura nombre, titular y secciones visibles del perfil abierto. |
-| `inspect-profile` | Diagnóstico limitado a encabezados y estructura del perfil, sin guardarlo. |
+| `capture-profile` | Captura nombre, titular y secciones renderizadas; desplaza la página para cargar secciones inferiores. |
+| `inspect-profile` | Diagnóstico de encabezados, párrafos de la tarjeta superior y campos detectados, sin guardarlo. |
 | `capture-job` | Captura título, empresa, ubicación, descripción y presencia de Easy Apply. |
 | `inspect-application` | Describe campos, etiquetas, opciones y acciones del paso visible. |
 | `inspect-application --open` | Hace clic en el botón Easy Apply y luego inspecciona el diálogo. |
@@ -86,6 +86,9 @@ Desde `backend/`:
 .venv/bin/rcn-agent capture-profile
 .venv/bin/rcn-agent capture-profile --url https://www.linkedin.com/in/tu-perfil/
 
+# Opcional: leer únicamente lo ya renderizado, sin desplazamiento.
+.venv/bin/rcn-agent capture-profile --no-scroll
+
 # Si no se reconoce el perfil, obtener pistas de su estructura.
 .venv/bin/rcn-agent inspect-profile --url https://www.linkedin.com/in/tu-perfil/
 
@@ -125,11 +128,29 @@ Sin `--url`, se prefiere la pestaña actual si es un recurso compatible. La capt
 del perfil espera hasta 15 segundos a que aparezca el nombre, incluso después de
 que el navegador indique que el documento terminó de cargar. Acepta encabezados
 visibles `h1`, encabezados accesibles y variantes de la tarjeta superior con `h2`.
+Las secciones se identifican por encabezados en inglés o español (por ejemplo,
+`About`/`Acerca de`, `Experience`/`Experiencia`), además de los identificadores antiguos.
+Así no depende de las clases generadas ni de que exista un `id="experience"`.
 
-Si falla, `inspect-profile` devuelve los selectores encontrados y hasta 20 encabezados
-con su etiqueta, rol, clase y texto acotado, además de identificadores de secciones.
-Puede incluir tu nombre y títulos de secciones; revisa esos datos antes de compartir
-la salida. No incluye el HTML completo, mensajes ni valores de formularios.
+La captura desplaza la ventana o el contenedor de perfil hasta 20 veces para cargar
+secciones inferiores, y restaura la posición inicial incluso si ocurre un error.
+Conserva los campos ya leídos si LinkedIn retira contenido anterior del DOM. No abre
+enlaces de detalle ni hace clic en botones de edición o envío. `--no-scroll` desactiva
+ese desplazamiento.
+
+`capture_status` indica `partial` si algún campo no se pudo leer. `field_status` distingue
+`captured` de `not_detected`; un campo no detectado **no implica que esté vacío en
+LinkedIn**. `field_sources` indica cómo se leyó cada campo, incluido el uso del primer
+párrafo de la tarjeta superior como alternativa para el titular. Revisa ese titular:
+la estructura de LinkedIn puede cambiar. Las capturas parciales incluyen una advertencia;
+si solo se reconoce el nombre, el comando falla y no guarda una captura nueva.
+
+`inspect-profile` devuelve los selectores encontrados y hasta 20 encabezados con su
+etiqueta, rol, clase y texto acotado, además de identificadores de secciones. También
+incluye hasta 12 párrafos de la tarjeta superior y, por campo, presencia, longitud y
+fuente de extracción. Puede incluir tu nombre, titular y ubicación; revisa esos datos
+antes de compartir la salida. No incluye el HTML completo, mensajes ni valores de
+formularios, y no desplaza la página.
 
 ## Datos locales y límites operativos
 
@@ -147,8 +168,10 @@ Puedes elegir otra ruta o puerto pasando las opciones antes del comando:
 Se exportan campos seleccionados del DOM visible, no cookies, contraseñas, valores
 de formularios ni el HTML completo. En perfiles, las secciones contienen el texto
 renderizado y pueden incluir encabezados y etiquetas de LinkedIn. Los campos que
-no estén renderizados quedan vacíos; el agente no carga páginas de detalle ni hace
-scroll automáticamente.
+no se logren leer quedan vacíos con estado `not_detected`. El desplazamiento es limitado:
+`captured` confirma que se leyó contenido de los campos, no que se hayan abierto todos
+los elementos de «Ver más» o páginas de detalle. Las secciones se acotan a 8.000 caracteres
+(16.000 para experiencia). El agente no abre esas páginas ni expande botones automáticamente.
 
 Si el DOM cambia, una vacante no carga, hay varios botones Easy Apply o aparece un
 inicio de sesión/verificación, el comando se detiene. El usuario resuelve la situación
