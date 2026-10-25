@@ -1,5 +1,21 @@
 # Remote Career Navigator
 
+RNC se orienta a un **copiloto de carrera conectado al Firefox del usuario**: organizar
+el perfil profesional, revisar oportunidades en LinkedIn y acompañar las postulaciones.
+La interacción con el navegador se ejecuta localmente, reutilizando la sesión abierta,
+siguiendo el patrón de `learnex-exporter`.
+
+La primera implementación incluye un agente por terminal para capturar perfiles y
+vacantes, abrir e inspeccionar Easy Apply y registrar el seguimiento de candidaturas.
+Angular y FastAPI conservan el flujo de perfiles existente; la conexión entre la interfaz
+y el agente local es la siguiente etapa.
+
+- [Uso del agente local y arquitectura](docs/LOCAL_CAREER_AGENT.md)
+- [Preparación del entorno](README_DEVELOPMENT.md)
+
+Las secciones siguientes describen la visión del producto y el roadmap; no representan
+funciones ya implementadas.
+
 ## AI International Career Copilot
 
 > Convierte tu experiencia local en una carrera internacional.

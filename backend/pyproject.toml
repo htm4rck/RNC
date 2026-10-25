@@ -12,10 +12,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+browser = [
+    "selenium>=4.30,<5",
+]
 dev = [
     "pytest>=8.3.0",
     "ruff>=0.6.0",
 ]
+
+[project.scripts]
+rcn-agent = "app.local_agent.cli:main"
 
 [tool.ruff]
 line-length = 100

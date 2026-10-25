@@ -114,3 +114,39 @@ Angular queda disponible en:
 ```text
 http://localhost:4200
 ```
+
+## Agente local con Firefox
+
+El agente se instala en el equipo que tiene Firefox, por separado del servicio Docker.
+No necesita PostgreSQL ni arrancar FastAPI.
+
+```bash
+cd backend
+uv venv .venv
+uv pip install --python .venv/bin/python -e '.[browser,dev]'
+.venv/bin/rcn-agent doctor
+```
+
+También se puede usar `python3 -m venv .venv` y `.venv/bin/pip install -e '.[browser,dev]'`
+si `python3-venv` está instalado.
+
+La guía de comandos y el alcance de esta entrega están en
+[LOCAL_CAREER_AGENT.md](docs/LOCAL_CAREER_AGENT.md).
+
+Verificación del backend y del agente:
+
+```bash
+cd backend
+.venv/bin/ruff check app tests
+.venv/bin/python -m pytest -q
+```
+
+Las pruebas de navegador crean **otro Firefox con un perfil temporal** y un puerto
+Marionette distinto. No usan tu cuenta ni hacen solicitudes a LinkedIn:
+
+```bash
+RCN_FIREFOX_TESTS=1 .venv/bin/python -m pytest -q tests/test_firefox_agent.py
+```
+
+Estas pruebas requieren Firefox y geckodriver en PATH. En Ubuntu con Snap usan un
+perfil temporal en `~/snap/firefox/common/` para que Firefox pueda leerlo.
