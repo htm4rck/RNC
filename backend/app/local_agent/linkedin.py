@@ -29,7 +29,7 @@ PROFILE_SCROLL_PAUSE = 0.4
 PROFILE_FIELDS = ("headline", "about", "experience", "education", "skills")
 
 _PROFILE_HELPERS = _HELPERS + r"""
-const excluded = e => !!e.closest('aside,nav,[role="dialog"]');
+const excluded = e => !!e.closest('aside,nav,footer,[role="contentinfo"],[role="dialog"]');
 const nameSelectors = [
     'h1',
     '[role="heading"][aria-level="1"]',
@@ -51,6 +51,7 @@ const profileElement = (root, selectors) => {
 const profileText = (root, selectors) => text(profileElement(root, selectors));
 const normalize = value => value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ').trim().toLowerCase();
+const headingLabel = value => normalize(value).replace(/\s*[\[(]\s*\d[\d\s,.]*[\])]\s*$/, '');
 const aliases = {
     about: ['about', 'acerca de', 'sobre mi', 'extracto'],
     experience: ['experience', 'experiencia', 'experiencia laboral', 'experiencia profesional'],
@@ -71,15 +72,15 @@ const sectionNames = [...Object.values(aliases).flat(), 'suggested for you', 'an
     'activity', 'resources', 'interests', 'recommendations', 'sugerencias para ti',
     'analisis', 'actividad', 'recursos', 'intereses', 'recomendaciones'];
 const profileNameElement = candidateNameElement
-    && !text(candidateNameElement).split('\n').some(line => sectionNames.includes(normalize(line)))
+    && !text(candidateNameElement).split('\n').some(line => sectionNames.includes(headingLabel(line)))
     ? candidateNameElement : null;
 const profileName = text(profileNameElement);
 const headings = main ? [...main.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')]
     .filter(e => visible(e) && !excluded(e)) : [];
 const level = e => Number(e.getAttribute('aria-level') || e.tagName.match(/^H([1-6])$/)?.[1] || 2);
 const headingKey = e => Object.keys(aliases).find(key =>
-    text(e).split('\n').some(line => aliases[key].includes(normalize(line))));
-const ignoredText = 'aside,nav,[role="dialog"],script,style,svg,noscript,button,'
+    text(e).split('\n').some(line => aliases[key].includes(headingLabel(line))));
+const ignoredText = 'aside,nav,footer,[role="contentinfo"],[role="dialog"],script,style,svg,noscript,button,'
     + 'input,select,textarea,[hidden],.visually-hidden,.sr-only';
 const renderedText = (root, range = null) => {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -99,12 +100,14 @@ const followingBoundary = heading => headings.find(candidate =>
     candidate !== heading && level(candidate) <= level(heading)
     && (heading.compareDocumentPosition(candidate) & Node.DOCUMENT_POSITION_FOLLOWING));
 const headingText = heading => {
+    // A lower section may not have loaded yet. Never extend beyond this card.
+    const scope = heading.closest('section,article,[role="region"]') || heading.parentElement;
     const range = document.createRange();
-    range.setStartBefore(heading);
+    range.setStartAfter(heading);
     const boundary = followingBoundary(heading);
-    if (boundary) range.setEndBefore(boundary);
-    else range.setEnd(main, main.childNodes.length);
-    return renderedText(main, range);
+    if (boundary && scope.contains(boundary)) range.setEndBefore(boundary);
+    else range.setEnd(scope, scope.childNodes.length);
+    return renderedText(scope, range);
 };
 const introRoot = profileNameElement?.closest('section') || main;
 const introBoundary = profileNameElement ? followingBoundary(profileNameElement) : null;
@@ -117,21 +120,33 @@ const introParagraphs = introRoot ? [...introRoot.querySelectorAll('p,[role="par
 const extractProfile = (knownName = '') => {
     if (!main || (!profileName && !knownName)) return null;
     const sources = {};
+    const counts = {};
     const section = (key, limit) => {
         const heading = headings.find(e => level(e) <= 2 && headingKey(e) === key);
         if (heading) {
-            const value = headingText(heading).slice(0, limit);
-            const body = value.split('\n').filter(line => !aliases[key].includes(normalize(line)));
-            if (body.length) {
-                sources[key] = 'heading:' + text(heading).split('\n')[0];
-                return value;
+            const total = text(heading).match(/[\[(]\s*(\d[\d\s,.]*)[\])]\s*$/);
+            if (total) {
+                const root = heading.closest('section,article,[role="region"]') || heading.parentElement;
+                const entries = key === 'skills' ? [...root.querySelectorAll(
+                    '[id^="com.linkedin.sdui.profile.skill("]'
+                )].filter(e => !e.id.endsWith('-divider') && visible(e) && !excluded(e)) : [];
+                counts[key] = {
+                    reported: Number(total[1].replace(/\D/g, '')),
+                    rendered: entries.length || null
+                };
             }
+            const body = headingText(heading);
+            if (body) {
+                sources[key] = 'heading:' + text(heading).split('\n')[0];
+                return (text(heading) + '\n' + body).slice(0, limit);
+            }
+            return '';
         }
         const anchor = main.querySelector(`[id="${key}"]`);
         const legacy = anchor?.closest('section');
         if (legacy && visible(legacy) && !excluded(legacy)) {
             const value = renderedText(legacy).slice(0, limit);
-            if (value && !aliases[key].includes(normalize(value))) {
+            if (value && !aliases[key].includes(headingLabel(value))) {
                 sources[key] = 'section-id:' + key;
                 return value;
             }
@@ -150,7 +165,7 @@ const extractProfile = (knownName = '') => {
         full_name: profileName || knownName, headline,
         about: section('about', 8000), experience: section('experience', 16000),
         education: section('education', 8000), skills: section('skills', 8000),
-        field_sources: sources
+        field_sources: sources, section_counts: counts
     };
 };
 """
@@ -179,7 +194,14 @@ def read_profile(driver, scroll: bool = True) -> dict:
             "Solo se reconoció el nombre; no se guardó una captura sin datos profesionales. "
             "Ejecuta rcn-agent inspect-profile para revisar la estructura del perfil."
         )
-    result["capture_status"] = "partial" if missing else "captured"
+    incomplete = [
+        field for field, counts in result["section_counts"].items()
+        if counts["reported"] > 0
+        and (counts["rendered"] is None or counts["rendered"] < counts["reported"])
+    ]
+    result["capture_status"] = "partial" if missing or incomplete else "captured"
+    result["capture_scope"] = "rendered_overview"
+    result["incomplete_sections"] = incomplete
     result["field_status"] = {
         field: "not_detected" if field in missing else "captured" for field in PROFILE_FIELDS
     }
@@ -189,6 +211,16 @@ def read_profile(driver, scroll: bool = True) -> dict:
             "Ejecuta rcn-agent inspect-profile para diagnosticar la lectura."
         )
     ] if missing else []
+    for field in incomplete:
+        counts = result["section_counts"][field]
+        rendered = counts["rendered"]
+        detail = f"se detectaron {rendered} elementos renderizados" if rendered is not None else (
+            "no se pudo verificar cuántos elementos están renderizados"
+        )
+        result["warnings"].append(
+            f"{field}: LinkedIn anuncia {counts['reported']} elementos; {detail}. "
+            "La captura corresponde a la vista principal; no se abrió la lista completa."
+        )
     return {"url": linkedin_url(driver.current_url, "profile"), **result}
 
 
@@ -218,6 +250,13 @@ def _read_scrolled_profile(driver, result: dict, capture) -> dict:
                     if len(current[field]) > len(result[field]):
                         result[field] = current[field]
                         result["field_sources"][field] = current["field_sources"][field]
+                for field, counts in current["section_counts"].items():
+                    previous = result["section_counts"].get(field, {})
+                    result["section_counts"][field] = {
+                        "reported": counts["reported"],
+                        "rendered": max(previous.get("rendered") or 0, counts["rendered"] or 0)
+                        or None,
+                    }
             if all(result[field] for field in PROFILE_FIELDS):
                 break
             position = driver.execute_script(r"""
@@ -253,6 +292,7 @@ def inspect_profile(driver) -> dict:
             ready_state: document.readyState,
             main_found: !!main,
             name_detected: !!profileName,
+            section_counts: profile?.section_counts || {},
             detected_fields: Object.fromEntries(
                 ['headline','about','experience','education','skills'].map(key => [key, {
                     detected: !!profile?.[key],

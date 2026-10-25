@@ -248,6 +248,79 @@ def test_profile_reads_div_cards_and_accessible_headings_without_section_tags(dr
     assert "education" in profile["warnings"][0]
 
 
+@pytest.mark.parametrize("heading,total", [
+    ("Skills (64)", 64),
+    ("Skills (1,234)", 1234),
+    ("Aptitudes (64)", 64),
+    ("Conocimientos y aptitudes [64]", 64),
+])
+def test_counted_skills_heading_is_read_without_claiming_the_full_list(driver, heading, total):
+    from app.local_agent.linkedin import read_profile
+
+    load_html(driver, f"""
+        <main><section><h2>Marc Demo</h2><p>Solution Architect</p></section>
+          <section><h2>About</h2><p>Biography</p></section>
+          <section><h2>Experience</h2><p>Example Company</p></section>
+          <section><h2>Education</h2><p>Example University</p></section>
+          <section><h2>{heading}</h2>
+            <div id="com.linkedin.sdui.profile.skill(demo, 20)">Python</div>
+            <div id="com.linkedin.sdui.profile.skill(demo, 20)-divider">Divider</div>
+            <div id="com.linkedin.sdui.profile.skill(demo, 21)">Microsoft Azure</div>
+            <button>Show all {total} skills</button>
+          </section>
+          <section><h2>Interests</h2><p>Unrelated content</p></section>
+        </main>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/in/marc-demo/")
+    profile = read_profile(fixture, scroll=False)
+    assert "Python" in profile["skills"]
+    assert "Microsoft Azure" in profile["skills"]
+    assert "Unrelated content" not in profile["skills"]
+    assert profile["field_status"]["skills"] == "captured"
+    assert profile["section_counts"]["skills"] == {"reported": total, "rendered": 2}
+    assert profile["capture_status"] == "partial"
+    assert profile["capture_scope"] == "rendered_overview"
+    assert profile["incomplete_sections"] == ["skills"]
+    assert str(total) in profile["warnings"][0]
+
+
+def test_counted_skills_heading_with_no_entries_does_not_count_as_skill_content(driver):
+    from app.local_agent.linkedin import read_profile
+
+    load_html(driver, """
+        <main><section><h2>Marc Demo</h2><p>Engineer</p></section>
+        <section id="skills"><h2>Skills (64)</h2></section></main>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/in/marc-demo/")
+    profile = read_profile(fixture, scroll=False)
+    assert profile["skills"] == ""
+    assert profile["field_status"]["skills"] == "not_detected"
+    assert profile["section_counts"]["skills"]["reported"] == 64
+
+
+def test_last_section_stays_within_its_card_before_lower_sections_have_loaded(driver):
+    from app.local_agent.linkedin import read_profile
+
+    load_html(driver, """
+        <main><section><h2>Marc Demo</h2><p>Solution Architect</p></section>
+          <section><h2>Experience</h2><p>Example Company</p>
+            <p>Designed enterprise platforms.</p>
+            <footer><p>Nested footer noise</p></footer>
+          </section>
+          <div><p>LinkedIn Corporation © 2026</p><p>Questions?</p>
+            <p>Visit our Help Center.</p><p>Recommendation transparency</p></div>
+          <div role="contentinfo"><h2>Footer heading</h2><p>Manage privacy</p></div>
+        </main>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/in/marc-demo/")
+    profile = read_profile(fixture, scroll=False)
+    assert profile["experience"] == (
+        "Experience\nExample Company\nDesigned enterprise platforms."
+    )
+    for noise in ("footer", "Corporation", "Questions?", "Help Center", "transparency", "privacy"):
+        assert noise not in profile["experience"]
+
+
 def test_profile_with_only_name_does_not_return_success(driver):
     from app.local_agent.linkedin import read_profile
 
@@ -265,6 +338,7 @@ def test_lazy_sections_are_captured_and_original_page_scroll_is_restored(driver)
         <main><section><h2>Marc Demo</h2><p>Software Engineer</p></section>
           <section><h2>About</h2><p>I build services.</p></section>
           <section><h2>Experience</h2><p>Example Company</p></section>
+          <div><p>LinkedIn Corporation © 2026</p><p>Visit our Help Center.</p></div>
         </main>
         <script>
           window.addEventListener('scroll', () => {
@@ -282,6 +356,8 @@ def test_lazy_sections_are_captured_and_original_page_scroll_is_restored(driver)
     assert profile["capture_status"] == "captured"
     assert "Example University" in profile["education"]
     assert "Python" in profile["skills"]
+    assert "Corporation" not in profile["experience"]
+    assert "Help Center" not in profile["experience"]
     assert driver.execute_script("return window.scrollY") == 100
 
 

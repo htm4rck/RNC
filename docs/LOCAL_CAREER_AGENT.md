@@ -131,6 +131,9 @@ visibles `h1`, encabezados accesibles y variantes de la tarjeta superior con `h2
 Las secciones se identifican por encabezados en inglés o español (por ejemplo,
 `About`/`Acerca de`, `Experience`/`Experiencia`), además de los identificadores antiguos.
 Así no depende de las clases generadas ni de que exista un `id="experience"`.
+Los contadores de encabezado se reconocen: `Skills (64)` y `Aptitudes (64)` se leen
+como secciones de aptitudes. Cada sección se acota a su tarjeta, evitando incorporar
+el pie de página cuando todavía no ha cargado la sección siguiente.
 
 La captura desplaza la ventana o el contenedor de perfil hasta 20 veces para cargar
 secciones inferiores, y restaura la posición inicial incluso si ocurre un error.
@@ -138,12 +141,19 @@ Conserva los campos ya leídos si LinkedIn retira contenido anterior del DOM. No
 enlaces de detalle ni hace clic en botones de edición o envío. `--no-scroll` desactiva
 ese desplazamiento.
 
-`capture_status` indica `partial` si algún campo no se pudo leer. `field_status` distingue
+`capture_status` indica `partial` si algún campo no se pudo leer o un contador de
+sección anuncia más elementos de los que se pueden verificar en la vista principal.
+`capture_scope` es `rendered_overview`. `field_status` distingue
 `captured` de `not_detected`; un campo no detectado **no implica que esté vacío en
 LinkedIn**. `field_sources` indica cómo se leyó cada campo, incluido el uso del primer
 párrafo de la tarjeta superior como alternativa para el titular. Revisa ese titular:
 la estructura de LinkedIn puede cambiar. Las capturas parciales incluyen una advertencia;
 si solo se reconoce el nombre, el comando falla y no guarda una captura nueva.
+`section_counts` informa el total anunciado y el número de elementos renderizados
+identificables; este último queda en `null` si no se puede verificar. Por ejemplo,
+`skills: {"reported": 64, "rendered": 2}` significa que se leyeron dos elementos de una
+sección que anuncia 64, no la lista completa. `incomplete_sections` y las advertencias
+hacen explícita esa limitación. No se abre automáticamente «Show all»/«Mostrar todo».
 
 `inspect-profile` devuelve los selectores encontrados y hasta 20 encabezados con su
 etiqueta, rol, clase y texto acotado, además de identificadores de secciones. También
