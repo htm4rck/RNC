@@ -21,6 +21,7 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("doctor", help="Diagnóstico sin controlar pestañas.")
     for command, help_text in (
         ("capture-profile", "Captura el perfil visible."),
+        ("inspect-profile", "Diagnostica los encabezados del perfil sin guardar una captura."),
         ("capture-job", "Captura una vacante visible."),
         ("inspect-application", "Inspecciona el paso visible de Easy Apply."),
     ):
@@ -51,15 +52,22 @@ def run(args: argparse.Namespace) -> dict | list:
             return store.track(url, args.status, args.notes)
 
     # Browser dependencies are optional; doctor and the tracker work without Selenium.
-    from app.local_agent.linkedin import inspect_application, read_job, read_profile
+    from app.local_agent.linkedin import (
+        inspect_application,
+        inspect_profile,
+        read_job,
+        read_profile,
+    )
 
-    kind = "profile" if args.command == "capture-profile" else "job"
+    kind = "profile" if args.command in {"capture-profile", "inspect-profile"} else "job"
     if args.url:
         linkedin_url(args.url, kind)  # Validate before connecting or touching any tab.
     lock_dir = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / f"rcn-agent-{os.getuid()}"
     with connected_firefox(args.marionette_port, lock_dir) as driver:
         select_linkedin_tab(driver, kind, args.url)
-        if args.command == "capture-profile":
+        if args.command == "inspect-profile":
+            return inspect_profile(driver)
+        elif args.command == "capture-profile":
             content = read_profile(driver)
         elif args.command == "capture-job":
             content = read_job(driver)

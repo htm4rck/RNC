@@ -99,6 +99,96 @@ def test_profile_extraction_ignores_unrelated_page_content(driver):
     assert "Secret private message" not in json.dumps(profile)
 
 
+def test_profile_accepts_h2_intro_card_and_accessible_main(driver):
+    from app.local_agent.linkedin import read_profile
+
+    load_html(driver, """
+        <main hidden><h1>Stale hidden profile</h1></main>
+        <div role="main">
+          <aside><h1>Another person</h1></aside>
+          <section><h2>Marc Demo</h2><p data-anonymize="headline">Python Engineer</p></section>
+          <section><div id="about"></div><h2>Acerca de</h2><p>Systems engineer.</p></section>
+        </div>
+    """)
+    fixture = LinkedInFixture(
+        driver, "https://www.linkedin.com/in/marc-demo/?isSelfProfile=true"
+    )
+    profile = read_profile(fixture)
+    assert profile["full_name"] == "Marc Demo"
+    assert profile["headline"] == "Python Engineer"
+    assert profile["url"] == "https://www.linkedin.com/in/marc-demo/"
+    assert "Systems engineer." in profile["about"]
+
+
+def test_profile_accepts_visible_accessible_heading(driver):
+    from app.local_agent.linkedin import read_profile
+
+    load_html(driver, """
+        <main><div role="heading" aria-level="1">Marc Demo</div>
+        <p data-field="headline">Engineer</p></main>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/in/marc-demo/")
+    assert read_profile(fixture)["full_name"] == "Marc Demo"
+
+
+def test_profile_waits_for_name_after_main_already_has_text(driver):
+    from app.local_agent.linkedin import read_profile
+
+    load_html(driver, "<main><p>Loading profile...</p></main>")
+    driver.execute_script("""
+        setTimeout(() => document.querySelector('main').innerHTML =
+            '<h1>Marc Demo</h1><p data-field="headline">Engineer</p>', 700);
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/in/marc-demo/")
+    assert read_profile(fixture)["full_name"] == "Marc Demo"
+
+
+def test_profile_without_name_does_not_capture_about_heading(driver, monkeypatch):
+    from app.local_agent import linkedin
+
+    monkeypatch.setattr(linkedin, "PROFILE_WAIT_SECONDS", 0)
+    load_html(driver, '<main><section id="about"><h2>About</h2><p>Bio</p></section></main>')
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/in/marc-demo/")
+    with pytest.raises(RuntimeError, match="inspect-profile"):
+        linkedin.read_profile(fixture)
+
+
+def test_profile_diagnostic_excludes_bodies_hidden_headings_and_input_values(driver):
+    from app.local_agent.linkedin import inspect_profile
+
+    load_html(driver, """
+        <main><section><h2 class="new-profile-heading">Marc Demo</h2></section>
+        <h3 hidden>Hidden heading</h3>
+        <aside><h2>Private message heading</h2><p>Private message body</p></aside>
+        <div role="dialog"><h2>Private dialog</h2></div>
+        <section id="about"><h2>About</h2><p>Personal biography</p></section>
+        <input type="email" value="private@example.test"></main>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/in/marc-demo/")
+    diagnostic = inspect_profile(fixture)
+    assert diagnostic["main_found"] is True
+    assert diagnostic["name_detected"] is True
+    assert diagnostic["headings"][0]["tag"] == "h2"
+    assert diagnostic["headings"][0]["text"] == "Marc Demo"
+    encoded = json.dumps(diagnostic)
+    for private in (
+        "Hidden heading", "Private message", "Private dialog", "Personal biography",
+        "private@example.test", "<section",
+    ):
+        assert private not in encoded
+
+
+def test_profile_diagnostic_handles_missing_main(driver):
+    from app.local_agent.linkedin import inspect_profile
+
+    load_html(driver, "<p>Profile layout not loaded</p>")
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/in/marc-demo/")
+    diagnostic = inspect_profile(fixture)
+    assert diagnostic["main_found"] is False
+    assert diagnostic["name_detected"] is False
+    assert diagnostic["headings"] == []
+
+
 def test_job_and_application_only_open_and_inspect_visible_step(driver):
     from app.local_agent.linkedin import inspect_application, read_job
 

@@ -79,7 +79,8 @@ def select_linkedin_tab(driver, kind: str, url: str | None = None) -> str:
     target = linkedin_url(url, kind) if url else None
     original = driver.current_window_handle
     fallback = None
-    for handle in driver.window_handles:
+    handles = [original, *(handle for handle in driver.window_handles if handle != original)]
+    for handle in handles:
         try:
             driver.switch_to.window(handle)
             current = driver.current_url
@@ -111,11 +112,13 @@ def select_linkedin_tab(driver, kind: str, url: str | None = None) -> str:
         lambda browser: browser.execute_script("return document.readyState") == "complete"
     )
     require_linkedin_page(driver, kind)
-    WebDriverWait(driver, 15).until(
-        lambda browser: browser.execute_script(
-            "return !!document.querySelector('main')?.innerText.trim()"
+    if kind != "profile":
+        WebDriverWait(driver, 15).until(
+            lambda browser: browser.execute_script(
+                "return [...document.querySelectorAll('main,[role=main]')]"
+                ".some(e => e.getClientRects().length && e.innerText.trim())"
+            )
         )
-    )
     return linkedin_url(driver.current_url, kind)
 
 

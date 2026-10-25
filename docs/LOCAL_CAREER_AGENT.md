@@ -28,6 +28,7 @@ MCP y la integración con Angular son entregas futuras.
 | --- | --- |
 | `doctor` | Diagnóstico de Firefox, geckodriver y puerto Marionette. |
 | `capture-profile` | Captura nombre, titular y secciones visibles del perfil abierto. |
+| `inspect-profile` | Diagnóstico limitado a encabezados y estructura del perfil, sin guardarlo. |
 | `capture-job` | Captura título, empresa, ubicación, descripción y presencia de Easy Apply. |
 | `inspect-application` | Describe campos, etiquetas, opciones y acciones del paso visible. |
 | `inspect-application --open` | Hace clic en el botón Easy Apply y luego inspecciona el diálogo. |
@@ -85,6 +86,9 @@ Desde `backend/`:
 .venv/bin/rcn-agent capture-profile
 .venv/bin/rcn-agent capture-profile --url https://www.linkedin.com/in/tu-perfil/
 
+# Si no se reconoce el perfil, obtener pistas de su estructura.
+.venv/bin/rcn-agent inspect-profile --url https://www.linkedin.com/in/tu-perfil/
+
 # Capturar una vacante para trabajarla localmente.
 .venv/bin/rcn-agent capture-job --url https://www.linkedin.com/jobs/view/123456789/
 
@@ -117,6 +121,15 @@ El agente usa una pestaña existente que coincida con el recurso. Cuando indicas
 `--url` y no está abierta, navega una pestaña de LinkedIn existente a esa URL; no
 navega otras páginas. Puedes abrir una pestaña dedicada para RNC. Al terminar deja
 la pestaña en su estado actual, incluido cualquier diálogo que haya abierto.
+Sin `--url`, se prefiere la pestaña actual si es un recurso compatible. La captura
+del perfil espera hasta 15 segundos a que aparezca el nombre, incluso después de
+que el navegador indique que el documento terminó de cargar. Acepta encabezados
+visibles `h1`, encabezados accesibles y variantes de la tarjeta superior con `h2`.
+
+Si falla, `inspect-profile` devuelve los selectores encontrados y hasta 20 encabezados
+con su etiqueta, rol, clase y texto acotado, además de identificadores de secciones.
+Puede incluir tu nombre y títulos de secciones; revisa esos datos antes de compartir
+la salida. No incluye el HTML completo, mensajes ni valores de formularios.
 
 ## Datos locales y límites operativos
 

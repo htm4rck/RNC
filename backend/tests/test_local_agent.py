@@ -109,6 +109,16 @@ def test_selects_matching_tab_without_navigating_other_tabs():
     driver.get.assert_not_called()
 
 
+def test_profile_selection_prefers_current_tab_over_background_profile():
+    driver = Tabs({
+        "background": "https://www.linkedin.com/in/another-person/",
+        "original": "https://www.linkedin.com/in/marc-demo/?isSelfProfile=true",
+    })
+    assert select_linkedin_tab(driver, "profile") == "https://www.linkedin.com/in/marc-demo/"
+    assert driver.current_window_handle == "original"
+    driver.get.assert_not_called()
+
+
 def test_no_linkedin_tab_restores_original_and_does_not_navigate():
     driver = Tabs({"original": "https://example.com/", "other": "https://bank.example/"})
     with pytest.raises(RuntimeError, match="Abre tu perfil"):

@@ -18,29 +18,105 @@ const first = (root, selectors) => {
     }
     return '';
 };
-const main = document.querySelector('main');
+const main = [...document.querySelectorAll('main, [role="main"]')].find(visible);
+"""
+
+PROFILE_WAIT_SECONDS = 15
+
+_PROFILE_HELPERS = _HELPERS + r"""
+const excluded = e => !!e.closest('aside,nav,[role="dialog"]');
+const nameSelectors = [
+    'h1',
+    '[role="heading"][aria-level="1"]',
+    '.pv-text-details__left-panel .text-heading-xlarge',
+    '.text-heading-xlarge',
+    '[data-anonymize="person-name"]',
+    '[data-view-name="profile-top-card"] h2',
+    '.pv-top-card h2',
+    '[aria-label="Profile header"] h2'
+];
+const profileText = (root, selectors) => {
+    for (const selector of selectors) {
+        const value = [...root.querySelectorAll(selector)]
+            .filter(e => !excluded(e)).map(text).find(Boolean);
+        if (value) return value;
+    }
+    return '';
+};
+const sections = main ? [...main.querySelectorAll('section')]
+    .filter(e => visible(e) && !excluded(e)) : [];
+const sectionMarker = '[id="about"],[id="experience"],[id="education"],'
+    + '[id="skills"],[id="recent-activity"],[id="analytics"],[id="resources"]';
+const topCard = sections[0];
+const topCardIsIntro = topCard && !topCard.matches(sectionMarker)
+    && !topCard.querySelector(sectionMarker);
+const profileName = main ? profileText(main, nameSelectors) || (
+    topCardIsIntro ? profileText(topCard, ['h2', '[role="heading"][aria-level="2"]']) : ''
+) : '';
 """
 
 
 def read_profile(driver) -> dict:
+    def capture(browser):
+        require_linkedin_page(browser, "profile")
+        return browser.execute_script(_PROFILE_HELPERS + r"""
+            if (!main || !profileName) return null;
+            const section = (id, limit) => sections
+                .filter(e => e.id === id || e.querySelector(`[id="${id}"]`))
+                .map(text).join('\n').slice(0, limit);
+            return {
+                full_name: profileName,
+                headline: profileText(main, [
+                    '.text-body-medium.break-words', '[data-field="headline"]',
+                    '[data-anonymize="headline"]'
+                ]),
+                about: section('about', 8000),
+                experience: section('experience', 16000),
+                education: section('education', 8000),
+                skills: section('skills', 8000)
+            };
+        """)
+
+    try:
+        result = WebDriverWait(driver, PROFILE_WAIT_SECONDS).until(capture)
+    except TimeoutException:
+        raise RuntimeError(
+            "No se reconoció el nombre del perfil tras esperar a que cargue. "
+            "Ejecuta rcn-agent inspect-profile con la misma --url para diagnosticar los encabezados."
+        ) from None
     require_linkedin_page(driver, "profile")
-    result = driver.execute_script(_HELPERS + r"""
-        if (!main) return null;
-        const sections = [...main.querySelectorAll('section')].filter(visible);
-        const section = (id, limit) => sections
-            .filter(e => e.id === id || e.querySelector(`[id="${id}"]`))
-            .map(text).join('\n').slice(0, limit);
+    return {"url": linkedin_url(driver.current_url, "profile"), **result}
+
+
+def inspect_profile(driver) -> dict:
+    """Limited structural diagnosis; no page HTML, form values, or message bodies."""
+    require_linkedin_page(driver, "profile")
+    result = driver.execute_script(_PROFILE_HELPERS + r"""
+        const summary = e => ({
+            tag: e.tagName.toLowerCase(),
+            role: e.getAttribute('role'),
+            level: e.getAttribute('aria-level'),
+            class: String(e.className).slice(0, 200),
+            text: text(e).slice(0, 160)
+        });
         return {
-            full_name: first(main, ['h1']),
-            headline: first(main, ['.text-body-medium.break-words', '[data-field="headline"]']),
-            about: section('about', 8000),
-            experience: section('experience', 16000),
-            education: section('education', 8000),
-            skills: section('skills', 8000)
+            ready_state: document.readyState,
+            main_found: !!main,
+            name_detected: !!profileName,
+            name_candidates: main ? nameSelectors.map(selector => ({
+                selector,
+                matches: [...main.querySelectorAll(selector)]
+                    .filter(e => visible(e) && !excluded(e)).slice(0, 3).map(summary)
+            })) : [],
+            headings: main ? [...main.querySelectorAll('h1,h2,h3,[role="heading"]')]
+                .filter(e => visible(e) && !excluded(e)).slice(0, 20).map(summary) : [],
+            sections: sections.slice(0, 12).map(e => ({
+                id: e.id,
+                anchors: [...e.querySelectorAll('[id]')].slice(0, 12).map(n => n.id),
+                heading: profileText(e, ['h1','h2','h3','[role="heading"]']).slice(0, 160)
+            }))
         };
     """)
-    if not result or not result["full_name"]:
-        raise RuntimeError("No se reconoció el perfil visible. Puede haber cambiado el DOM.")
     return {"url": linkedin_url(driver.current_url, "profile"), **result}
 
 
