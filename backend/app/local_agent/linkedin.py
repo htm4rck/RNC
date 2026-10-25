@@ -339,7 +339,47 @@ def read_job(driver) -> dict:
         };
     """)
     if not result or not result["title"] or not result["description"]:
-        raise RuntimeError("La vacante no está cargada o no se reconoció su descripción.")
+        raise RuntimeError(
+            "La vacante no está cargada o no se reconoció su descripción. "
+            "Ejecuta rcn-agent inspect-job en esa pestaña para diagnosticarla."
+        )
+    return {"url": linkedin_url(driver.current_url, "job"), **result}
+
+
+def inspect_job(driver) -> dict:
+    """Diagnose the selected job without exporting form values or the page HTML."""
+    require_linkedin_page(driver, "job")
+    result = driver.execute_script(_HELPERS + r"""
+        const excluded = e => !!e.closest('aside,nav,footer,[role="contentinfo"],[role="dialog"]');
+        const describe = e => ({
+            tag: e.tagName.toLowerCase(), role: e.getAttribute('role'),
+            class: String(e.className).slice(0, 200),
+            text: (e.getAttribute('aria-label') || text(e)).slice(0, 180)
+        });
+        return {
+            ready_state: document.readyState,
+            main_found: !!main,
+            headings: main ? [...main.querySelectorAll('h1,h2,h3,[role="heading"]')]
+                .filter(e => visible(e) && !excluded(e)).slice(0, 30).map(describe) : [],
+            buttons: main ? [...main.querySelectorAll('button,[role="button"]')]
+                .filter(e => visible(e) && !excluded(e)).slice(0, 30).map(describe) : [],
+            description_candidates: main ? ['#job-details','.jobs-description__content',
+                '[data-view-name="job-details"]'].map(selector => ({
+                    selector,
+                    matches: [...main.querySelectorAll(selector)]
+                        .filter(e => visible(e) && !excluded(e)).length
+                })) : [],
+            company_links: main ? [...main.querySelectorAll('a[href*="/company/"]')]
+                .filter(e => visible(e) && !excluded(e)).slice(0, 5)
+                .map(e => ({text: text(e).slice(0, 160)})) : [],
+            dialogs: [...document.querySelectorAll('[role="dialog"]')].filter(visible)
+                .slice(0, 5).map(e => ({
+                    class: String(e.className).slice(0, 200),
+                    heading: first(e, ['h1','h2','h3','[role="heading"]']).slice(0, 180),
+                    field_count: e.querySelectorAll('input:not([type="hidden"]),select,textarea').length
+                }))
+        };
+    """)
     return {"url": linkedin_url(driver.current_url, "job"), **result}
 
 

@@ -30,6 +30,7 @@ MCP y la integración con Angular son entregas futuras.
 | `capture-profile` | Captura nombre, titular y secciones renderizadas; desplaza la página para cargar secciones inferiores. |
 | `inspect-profile` | Diagnóstico de encabezados, párrafos de la tarjeta superior y campos detectados, sin guardarlo. |
 | `capture-job` | Captura título, empresa, ubicación, descripción y presencia de Easy Apply. |
+| `inspect-job` | Diagnóstico de encabezados, botones y diálogos de la vacante, sin guardar una captura. |
 | `inspect-application` | Describe campos, etiquetas, opciones y acciones del paso visible. |
 | `inspect-application --open` | Hace clic en el botón Easy Apply y luego inspecciona el diálogo. |
 | `track` | Registra explícitamente el estado de una candidatura ya capturada. |
@@ -95,6 +96,13 @@ Desde `backend/`:
 # Capturar una vacante para trabajarla localmente.
 .venv/bin/rcn-agent capture-job --url https://www.linkedin.com/jobs/view/123456789/
 
+# También acepta la oferta seleccionada dentro de los resultados de búsqueda.
+.venv/bin/rcn-agent capture-job \
+  --url 'https://www.linkedin.com/jobs/search-results/?currentJobId=123456789'
+
+# Diagnóstico si la oferta usa una estructura no reconocida.
+.venv/bin/rcn-agent inspect-job
+
 # Guardarla en el seguimiento.
 .venv/bin/rcn-agent track --job-url https://www.linkedin.com/jobs/view/123456789/ \
   --status saved --notes 'Revisar idioma y disponibilidad para LATAM'
@@ -124,6 +132,17 @@ El agente usa una pestaña existente que coincida con el recurso. Cuando indicas
 `--url` y no está abierta, navega una pestaña de LinkedIn existente a esa URL; no
 navega otras páginas. Puedes abrir una pestaña dedicada para RNC. Al terminar deja
 la pestaña en su estado actual, incluido cualquier diálogo que haya abierto.
+Se admiten `/jobs/search/` y `/jobs/search-results/` con un único `currentJobId`
+numérico. El agente abre la URL directa `/jobs/view/ID/` en esa pestaña para trabajar
+solo con la oferta seleccionada. Los parámetros de seguimiento no se almacenan.
+Si los resultados tienen un diálogo abierto, el agente conserva esa página y pide
+abrir la URL directa en otra pestaña. No navega dejando un formulario abierto atrás.
+
+`inspect-job` describe hasta 30 encabezados y botones, los selectores de descripción
+presentes, los nombres de hasta cinco enlaces de empresa y los encabezados/clases
+de diálogos visibles con su número de campos. No incluye el texto de la descripción,
+valores de formularios ni HTML completo. Sirve para ajustar el lector a la estructura
+que LinkedIn muestre en ese equipo.
 Sin `--url`, se prefiere la pestaña actual si es un recurso compatible. La captura
 del perfil espera hasta 15 segundos a que aparezca el nombre, incluso después de
 que el navegador indique que el documento terminó de cargar. Acepta encabezados

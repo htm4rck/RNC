@@ -442,6 +442,32 @@ def test_ambiguous_easy_apply_does_not_click(driver):
     assert driver.execute_script("return !!window.clicked") is False
 
 
+def test_job_diagnostic_collects_structure_without_form_values_or_page_bodies(driver):
+    from app.local_agent.linkedin import inspect_job
+
+    load_html(driver, """
+        <main><h2>Solution Architect</h2><section><h2>About the job</h2>
+          <p>Job description body</p></section>
+          <a href="https://www.linkedin.com/company/example/">Example</a>
+          <button aria-label="Easy Apply to Solution Architect">Easy Apply</button>
+          <aside><h2>Private sidebar heading</h2></aside>
+        </main>
+        <div role="dialog"><h2>Apply to Example</h2>
+          <input type="email" value="private@example.test">
+          <input type="hidden" value="secret-token">
+        </div>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/jobs/view/4481008368/")
+    result = inspect_job(fixture)
+    assert result["headings"][0]["text"] == "Solution Architect"
+    assert result["buttons"][0]["text"] == "Easy Apply to Solution Architect"
+    assert result["dialogs"][0]["field_count"] == 1
+    assert result["company_links"] == [{"text": "Example"}]
+    encoded = json.dumps(result)
+    for private in ("private@example.test", "secret-token", "Job description body", "Private sidebar"):
+        assert private not in encoded
+
+
 def test_unrelated_dialog_is_not_read_as_application(driver):
     from app.local_agent.linkedin import inspect_application
 

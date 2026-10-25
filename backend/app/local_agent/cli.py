@@ -23,6 +23,7 @@ def parser() -> argparse.ArgumentParser:
         ("capture-profile", "Captura el perfil visible."),
         ("inspect-profile", "Diagnostica los encabezados del perfil sin guardar una captura."),
         ("capture-job", "Captura una vacante visible."),
+        ("inspect-job", "Diagnostica encabezados, botones y diálogos de una vacante."),
         ("inspect-application", "Inspecciona el paso visible de Easy Apply."),
     ):
         action = commands.add_parser(command, help=help_text)
@@ -59,6 +60,7 @@ def run(args: argparse.Namespace) -> dict | list:
     # Browser dependencies are optional; doctor and the tracker work without Selenium.
     from app.local_agent.linkedin import (
         inspect_application,
+        inspect_job,
         inspect_profile,
         read_job,
         read_profile,
@@ -72,6 +74,8 @@ def run(args: argparse.Namespace) -> dict | list:
         select_linkedin_tab(driver, kind, args.url)
         if args.command == "inspect-profile":
             return inspect_profile(driver)
+        elif args.command == "inspect-job":
+            return inspect_job(driver)
         elif args.command == "capture-profile":
             content = read_profile(driver, scroll=not args.no_scroll)
         elif args.command == "capture-job":

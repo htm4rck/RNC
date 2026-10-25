@@ -34,6 +34,30 @@ def test_canonical_urls_remove_tracking_and_keep_resource():
     )
 
 
+@pytest.mark.parametrize("path", ["/jobs/search/", "/jobs/search-results/"])
+def test_selected_job_search_url_has_same_identity_as_direct_job(path):
+    url = f"https://www.linkedin.com{path}?currentJobId=4481008368&eBP=tracking&keywords=Engineer"
+    assert linkedin_url(url, "job") == "https://www.linkedin.com/jobs/view/4481008368/"
+
+
+@pytest.mark.parametrize("query", [
+    "keywords=Engineer", "currentJobId=", "currentJobId=abc", "currentJobId=123%2F456",
+    "currentJobId=123&currentJobId=456", "currentJobId=123&currentJobId=123",
+])
+def test_search_url_requires_one_unambiguous_numeric_selected_job(query):
+    with pytest.raises(ValueError, match="currentJobId"):
+        linkedin_url(f"https://www.linkedin.com/jobs/search-results/?{query}", "job")
+
+
+def test_selected_job_does_not_allow_external_host_or_unrelated_path():
+    for url in (
+        "https://www.linkedin.com.evil.example/jobs/search-results/?currentJobId=123",
+        "https://www.linkedin.com/feed/?currentJobId=123",
+    ):
+        with pytest.raises(ValueError):
+            linkedin_url(url, "job")
+
+
 def test_tracking_requires_capture_and_preserves_notes_without_duplicate(tmp_path):
     url = "https://www.linkedin.com/jobs/view/123/"
     with LocalStore(tmp_path) as store:
@@ -84,7 +108,9 @@ class Tabs:
         self.window_handles = list(urls)
         self.switch_to = Mock()
         self.switch_to.window.side_effect = self.switch
-        self.get = Mock()
+        self.get = Mock(
+            side_effect=lambda url: self.urls.update({self.current_window_handle: url})
+        )
         self.execute_script = Mock(
             side_effect=lambda script: "complete" if "readyState" in script else True
         )
@@ -116,6 +142,36 @@ def test_profile_selection_prefers_current_tab_over_background_profile():
     })
     assert select_linkedin_tab(driver, "profile") == "https://www.linkedin.com/in/marc-demo/"
     assert driver.current_window_handle == "original"
+    driver.get.assert_not_called()
+
+
+def test_selected_search_job_opens_direct_detail_in_same_tab():
+    search_url = "https://www.linkedin.com/jobs/search-results/?currentJobId=4481008368&eBP=tracking"
+    driver = Tabs({"original": search_url, "other": "https://example.com/"})
+    target = "https://www.linkedin.com/jobs/view/4481008368/"
+    assert select_linkedin_tab(driver, "job") == target
+    assert driver.current_window_handle == "original"
+    assert driver.urls["other"] == "https://example.com/"
+    driver.get.assert_called_once_with(target)
+
+
+def test_explicit_search_url_matches_already_open_direct_job_without_navigation():
+    target = "https://www.linkedin.com/jobs/view/4481008368/"
+    driver = Tabs({"original": target})
+    search_url = "https://www.linkedin.com/jobs/search-results/?currentJobId=4481008368"
+    assert select_linkedin_tab(driver, "job", search_url) == target
+    driver.get.assert_not_called()
+
+
+def test_search_dialog_is_preserved_instead_of_navigating_away():
+    search_url = "https://www.linkedin.com/jobs/search-results/?currentJobId=4481008368"
+    driver = Tabs({"original": search_url})
+    dialog = Mock()
+    dialog.is_displayed.return_value = True
+    driver.find_elements.return_value = [dialog]
+    with pytest.raises(RuntimeError, match="diálogo abierto"):
+        select_linkedin_tab(driver, "job")
+    assert driver.current_url == search_url
     driver.get.assert_not_called()
 
 

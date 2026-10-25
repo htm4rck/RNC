@@ -106,8 +106,22 @@ def select_linkedin_tab(driver, kind: str, url: str | None = None) -> str:
             driver.switch_to.window(original)
             raise RuntimeError(
                 "Abre tu perfil de LinkedIn o una vacante /jobs/view/ en Firefox. "
+                "También se admite una búsqueda con una oferta seleccionada (currentJobId). "
                 "También puedes indicar --url si ya tienes una pestaña de LinkedIn abierta."
             )
+    if kind == "job" and urlsplit(driver.current_url).path.rstrip("/") in {
+        "/jobs/search", "/jobs/search-results"
+    }:
+        from selenium.webdriver.common.by import By
+
+        if any(dialog.is_displayed() for dialog in driver.find_elements(
+            By.CSS_SELECTOR, '[role="dialog"]'
+        )):
+            raise RuntimeError(
+                "Hay un diálogo abierto en los resultados. Para conservarlo, abre "
+                f"{linkedin_url(driver.current_url, 'job')} en otra pestaña y repite allí."
+            )
+        driver.get(linkedin_url(driver.current_url, "job"))
     WebDriverWait(driver, 15).until(
         lambda browser: browser.execute_script("return document.readyState") == "complete"
     )
