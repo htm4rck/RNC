@@ -682,3 +682,218 @@ def test_disconnect_keeps_firefox_open_and_allows_reconnect(firefox_instance):
             connected_firefox(port, directory),
         ):
             pytest.fail("Concurrent browser attachment must be rejected")
+
+
+def preparation_answers():
+    from app.local_agent.answers import empty_answers
+
+    answers = empty_answers()
+    answers["contact"] = {"email": "person@example.test", "phone_country_code": "+51",
+                          "phone_number": "555010123"}
+    answers["resume"]["filename"] = "CV_Architect.pdf"
+    return answers
+
+
+def load_preparation_flow(driver, *, title="Solution Architect", screening=False, stall=False,
+                          resume_filename="CV_Architect.pdf"):
+    countries = ''.join(f'<option>Country {index} (+{1000 + index})</option>' for index in range(110))
+    load_html(driver, f"""
+        <main><h1>{title}</h1><p data-field="company">Example Company</p>
+          <div id="job-details">Design enterprise systems.</div></main>
+        <div role="dialog" aria-label="Apply to Example" id="application"></div>
+        <script>
+          window.sent = false; window.advances = 0; window.chosenResume = null;
+          const root = document.querySelector('#application');
+          function review() {{
+            root.innerHTML = '<h2>Review application</h2>'
+              + '<button onclick="window.sent=true">Submit application</button>';
+          }}
+          function screening() {{
+            root.innerHTML = '<h2>Additional questions</h2>'
+              + '<label>Years of BIAN experience*<input type="number" required></label>'
+              + '<button onclick="review()">Next</button>';
+          }}
+          function resumes() {{
+            root.innerHTML = `<h2>Resume</h2>
+              <input type="radio" id="dev" name="cv" checked style="display:none">
+              <label for="dev"><p>CV_Developer.pdf</p><p>50 KB</p></label>
+              <input type="radio" id="architect" name="cv" style="display:none">
+              <label for="architect"><p>{resume_filename}</p><p>60 KB</p></label>
+              <input type="file" aria-label="Upload resume" style="display:none">
+              <button onclick="window.advances++; window.chosenResume = document.querySelector('#architect').checked ? 'architect' : 'developer';
+                {'screening()' if screening else 'review()'}">Next</button>`;
+          }}
+          root.innerHTML = `<h2>Contact info</h2>
+            <label>Email*<select required id="email"><option value=""></option><option>person@example.test</option></select></label>
+            <label>Phone country code*<select required id="country"><option value=""></option>
+              {countries}<option>Peru (+51)</option><option>Canada (+1)</option><option>United States (+1)</option></select></label>
+            <label>Teléfono móvil*<input id="phone" type="tel" pattern="[0-9]{{9}}" required></label>
+            <button onclick="window.advances++; {'void 0' if stall else 'resumes()'}">Next</button>`;
+        </script>
+    """)
+    return LinkedInFixture(driver, "https://www.linkedin.com/jobs/view/4481008368/")
+
+
+def test_prepare_fills_contact_selects_exact_resume_and_stops_before_submission(driver):
+    from app.local_agent.applications import prepare_application
+
+    fixture = load_preparation_flow(driver)
+    result = prepare_application(fixture, preparation_answers())
+    assert result["status"] == "ready_for_review"
+    assert result["submitted"] is False
+    assert len(result["steps"]) == 2
+    assert result["steps"][1]["resume"] == "CV_Architect.pdf"
+    assert driver.execute_script("return window.chosenResume") == "architect"
+    assert driver.execute_script("return window.advances") == 2
+    assert driver.execute_script("return window.sent") is False
+    assert "555010123" not in json.dumps(result)
+
+
+def test_prepare_dry_run_makes_no_changes_or_next_click(driver):
+    from app.local_agent.applications import prepare_application
+
+    fixture = load_preparation_flow(driver)
+    result = prepare_application(fixture, preparation_answers(), dry_run=True)
+    assert result["status"] == "ready"
+    assert driver.execute_script("return document.querySelector('#email').value") == ""
+    assert driver.execute_script("return document.querySelector('#phone').value") == ""
+    assert driver.execute_script("return window.advances") == 0
+
+
+def test_prepare_missing_required_answer_does_not_partially_modify_contact(driver):
+    from app.local_agent.applications import prepare_application
+
+    fixture = load_preparation_flow(driver)
+    data = preparation_answers()
+    data["contact"]["phone_number"] = None
+    result = prepare_application(fixture, data)
+    assert result["status"] == "needs_answers"
+    assert driver.execute_script("return document.querySelector('#email').value") == ""
+    assert driver.execute_script("return window.advances") == 0
+
+
+def test_prepare_uses_country_option_beyond_first_hundred(driver):
+    from app.local_agent.applications import prepare_application
+    from app.local_agent.linkedin import inspect_application
+
+    fixture = load_preparation_flow(driver)
+    countries = inspect_application(fixture)["fields"][1]["options"]
+    assert "Peru (+51)" in countries[100:]
+    result = prepare_application(fixture, preparation_answers(), max_steps=1)
+    assert result["steps"][0]["blocked"] == []
+    assert driver.execute_script("return window.advances") == 1
+
+
+def test_prepare_ambiguous_country_code_stops_before_changing_fields(driver):
+    from app.local_agent.applications import prepare_application
+
+    fixture = load_preparation_flow(driver)
+    data = preparation_answers()
+    data["contact"]["phone_country_code"] = "+1"
+    result = prepare_application(fixture, data)
+    assert result["status"] == "needs_answers"
+    assert result["steps"][0]["blocked"][0]["reason"] == "option_not_found_or_ambiguous"
+    assert driver.execute_script("return window.advances") == 0
+
+
+def test_prepare_verifies_phone_before_advancing(driver):
+    from app.local_agent.applications import prepare_application
+
+    fixture = load_preparation_flow(driver)
+    data = preparation_answers()
+    data["contact"]["phone_number"] = "123"
+    result = prepare_application(fixture, data)
+    assert result["status"] == "needs_answers"
+    assert any(item["reason"] == "verification_failed" for item in result["steps"][0]["blocked"])
+    assert driver.execute_script("return window.advances") == 0
+
+
+def test_prepare_does_not_use_architect_resume_for_another_job(driver):
+    from app.local_agent.applications import prepare_application
+
+    fixture = load_preparation_flow(driver, title="Software Developer")
+    result = prepare_application(fixture, preparation_answers())
+    assert result["status"] == "needs_answers"
+    assert result["steps"][-1]["blocked"][0]["reason"] == "resume_rule_not_applicable_to_job_title"
+    assert driver.execute_script("return window.advances") == 1
+    assert driver.execute_script("return document.querySelector('#dev').checked") is True
+
+
+def test_prepare_missing_resume_does_not_select_an_alternative(driver):
+    from app.local_agent.applications import prepare_application
+
+    fixture = load_preparation_flow(driver, resume_filename="Another_Architect.pdf")
+    result = prepare_application(fixture, preparation_answers())
+    assert result["status"] == "needs_answers"
+    assert result["steps"][-1]["blocked"][0]["reason"] == "resume_not_found_or_ambiguous"
+    assert driver.execute_script("return window.advances") == 1
+
+
+def test_prepare_duplicate_resume_names_do_not_choose_one_arbitrarily(driver):
+    from app.local_agent.applications import prepare_application
+
+    fixture = load_preparation_flow(driver)
+    driver.execute_script("resumes(); document.querySelector('label[for=dev] p').textContent = 'CV_Architect.pdf';")
+    result = prepare_application(fixture, preparation_answers())
+    assert result["status"] == "needs_answers"
+    assert result["steps"][0]["blocked"][0]["reason"] == "resume_not_found_or_ambiguous"
+    assert driver.execute_script("return window.advances") == 0
+
+
+def test_prepare_unrecognized_resume_controls_do_not_advance_with_a_default_resume(driver):
+    from app.local_agent.applications import prepare_application
+
+    fixture = load_preparation_flow(driver)
+    driver.execute_script("resumes(); document.querySelectorAll('input[type=radio]').forEach(e => e.remove());")
+    result = prepare_application(fixture, preparation_answers())
+    assert result["status"] == "needs_answers"
+    assert result["steps"][0]["blocked"][0]["reason"] == "resume_selection_controls_not_recognized"
+    assert driver.execute_script("return window.advances") == 0
+
+
+def test_prepare_stops_at_unknown_screening_question_without_inventing_bian_experience(driver):
+    from app.local_agent.applications import prepare_application
+
+    fixture = load_preparation_flow(driver, screening=True)
+    result = prepare_application(fixture, preparation_answers())
+    assert result["status"] == "needs_answers"
+    assert result["steps"][-1]["blocked"][0]["field"] == "Years of BIAN experience*"
+    assert driver.execute_script("return window.advances") == 2
+    assert driver.execute_script("return document.querySelector('input[type=number]').value") == ""
+    assert driver.execute_script("return window.sent") is False
+
+
+def test_prepare_uses_explicit_answer_for_a_screening_question(driver):
+    from app.local_agent.applications import prepare_application
+
+    fixture = load_preparation_flow(driver, screening=True)
+    data = preparation_answers()
+    data["answers"]["Years of BIAN experience"] = "2"
+    result = prepare_application(fixture, data)
+    assert result["status"] == "ready_for_review"
+    assert driver.execute_script("return window.sent") is False
+
+
+def test_prepare_does_not_retry_next_when_step_did_not_change(driver, monkeypatch):
+    from app.local_agent import applications
+
+    monkeypatch.setattr(applications, "STEP_WAIT_SECONDS", 0)
+    fixture = load_preparation_flow(driver, stall=True)
+    result = applications.prepare_application(fixture, preparation_answers())
+    assert result["status"] == "next_step_not_confirmed"
+    assert driver.execute_script("return window.advances") == 1
+
+
+def test_job_title_rejects_hybrid_link_and_reads_explicit_role_from_description(driver):
+    from app.local_agent.linkedin import read_job
+
+    load_html(driver, """
+        <main><a href="https://www.linkedin.com/jobs/view/4481008368/">Hybrid</a>
+          <section><h2>About the job</h2><p>Buscamos un</p>
+          <p>Arquitecto de Soluciones Senior (Banca | BIAN)</p><p>con ganas de trabajar.</p></section>
+        </main>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/jobs/view/4481008368/")
+    result = read_job(fixture)
+    assert result["title"] == "Arquitecto de Soluciones Senior (Banca | BIAN)"
+    assert result["field_sources"]["title"] == "description-role"

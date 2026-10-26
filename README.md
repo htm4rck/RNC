@@ -6,7 +6,9 @@ La interacción con el navegador se ejecuta localmente, reutilizando la sesión 
 siguiendo el patrón de `learnex-exporter`.
 
 La primera implementación incluye un agente por terminal para capturar perfiles y
-vacantes, abrir e inspeccionar Easy Apply y registrar el seguimiento de candidaturas.
+vacantes, abrir e inspeccionar Easy Apply y preparar solicitudes con respuestas verificadas:
+rellenar contacto, seleccionar un CV precargado por nombre y avanzar hasta preguntas
+pendientes o la revisión final. También registra el seguimiento de candidaturas.
 Angular y FastAPI conservan el flujo de perfiles existente; la conexión entre la interfaz
 y el agente local es la siguiente etapa.
 

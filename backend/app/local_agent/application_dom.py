@@ -6,7 +6,8 @@ const appNormalize = value => value.normalize('NFKD').replace(/[\u0300-\u036f]/g
 const appName = e => e.getAttribute('aria-label') || (e.getAttribute('aria-labelledby') || '')
     .split(/\s+/).map(id => document.getElementById(id)?.textContent.trim() || '').filter(Boolean).join(' ');
 const appControls = root => [...root.querySelectorAll('input,select,textarea,[role="combobox"]')]
-    .filter(e => (visible(e) || e.type === 'file')
+    .filter(e => (visible(e) || (e.type === 'file' && visible(e.parentElement)
+        && !e.parentElement.closest('[hidden]')))
         && !['hidden','password','submit','button','reset'].includes(e.type));
 const appLabelText = label => {
     const copy = label.cloneNode(true);
@@ -20,7 +21,7 @@ const appQuestion = e => {
     const own = labels.join(' ') || appName(e) || e.getAttribute('placeholder') || '';
     return legend && own && legend !== own ? legend + ' — ' + own : own || legend;
 };
-const appSignature = /\beasy apply\b|\bapply (to|for)\b|job application|application questions|contact info|informacion de contacto|personal information|informacion personal|\bresume\b|curriculum|solicitud sencilla|solicitud de empleo|postular|candidatura/;
+const appSignature = /\beasy apply\b|\bapply (to|for)\b|job application|application questions|review (your )?application|submit application|revisar solicitud|contact info|informacion de contacto|personal information|informacion personal|\bresume\b|curriculum|solicitud sencilla|solicitud de empleo|postular|candidatura/;
 const appActionLabels = root => [...root.querySelectorAll('button,[role="button"],input[type="submit"]')]
     .filter(visible).map(e => appName(e) || text(e));
 const appDialogInfo = root => {
@@ -33,9 +34,10 @@ const appDialogInfo = root => {
         appNormalize(appQuestion(e))
     ));
     const next = appActionLabels(root).some(label => /^(next|siguiente|continue|continuar)$/i.test(label.trim()));
+    const review = appActionLabels(root).some(label => /^(submit application|send application|enviar solicitud|submit)$/i.test(label.trim()));
     return {
         element: root, fields: controls, blocked,
-        recognized: legacy || (!blocked && controls.length > 0 && (named || (contact && next))),
+        recognized: legacy || (!blocked && ((controls.length > 0 && (named || (contact && next))) || (named && review))),
         title: first(root, ['h1','h2','h3','[role="heading"]']) || appName(root)
             || [...root.querySelectorAll('p')].map(text)
                 .find(value => appSignature.test(appNormalize(value))) || '',
@@ -51,6 +53,19 @@ const appDialogRoots = (allowNew = []) => {
     return candidates.filter(info => !candidates.some(other => other !== info
         && other.element.contains(info.element))).map(info => info.element);
 };
+const appResumeChoices = root => {
+    const choices = [];
+    for (const e of root.querySelectorAll('input[type="radio"],[role="radio"]')) {
+        if (e.getAttribute('role') === 'radio' && e.querySelector('input[type="radio"]')) continue;
+        const labels = e.labels ? [...e.labels].filter(visible) : [];
+        const name = labels.map(text).filter(Boolean).join('\n') || appName(e) || text(e) || appQuestion(e);
+        const filename = name.match(/[^\s\\/]+\.(?:pdf|docx?)\b/i)?.[0] || '';
+        if (!filename || (!visible(e) && !labels.length)) continue;
+        choices.push({element: e, target: visible(e) ? e : labels[0], filename,
+            selected: e.type === 'radio' ? e.checked : e.getAttribute('aria-checked') === 'true'});
+    }
+    return choices;
+};
 const collectApplication = root => {
     const info = appDialogInfo(root);
     return {
@@ -59,8 +74,9 @@ const collectApplication = root => {
         fields: info.fields.slice(0,80).map(e => ({
             label: appQuestion(e), type: e.type || e.getAttribute('role') || e.tagName.toLowerCase(),
             required: !!e.required || e.getAttribute('aria-required') === 'true',
-            options: e.tagName === 'SELECT' ? [...e.options].slice(0,100).map(o => o.text) : []
+            options: e.tagName === 'SELECT' ? [...e.options].map(o => o.text) : []
         })),
+        resume_candidates: appResumeChoices(root).map(({filename,selected}) => ({filename,selected})),
         actions: appActionLabels(root).slice(0,30)
     };
 };

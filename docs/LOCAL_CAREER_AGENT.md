@@ -33,6 +33,8 @@ MCP y la integración con Angular son entregas futuras.
 | `inspect-job` | Diagnóstico de encabezados, botones y diálogos de la vacante, sin guardar una captura. |
 | `inspect-application` | Describe campos, etiquetas, opciones y acciones del paso visible. |
 | `inspect-application --open` | Hace clic en el botón Easy Apply y luego inspecciona el diálogo. |
+| `configure` | Guarda datos de contacto y la regla de CV en un archivo local privado. |
+| `prepare-application` | Rellena respuestas verificadas, selecciona un CV precargado y avanza hasta una pregunta pendiente o la revisión final. |
 | `track` | Registra explícitamente el estado de una candidatura ya capturada. |
 | `applications` | Lista candidaturas locales, con filtro por estado. |
 
@@ -41,10 +43,10 @@ se deduplican por URL de vacante y mantienen un historial de cambios de estado. 
 estado `applied` se registra únicamente con una instrucción explícita `track` del usuario;
 capturar una vacante o inspeccionar un formulario nunca lo marca como enviado.
 
-El perfil capturado es el perfil que indiques o tengas abierto. Esta entrega no verifica
-que sea tu propio perfil, no genera contenido con IA, no edita LinkedIn y no rellena ni
-envía formularios. La inspección de Easy Apply cubre únicamente el paso visible, no los
-pasos siguientes ni formularios externos.
+El perfil capturado es el perfil que indiques o tengas abierto. La preparación de Easy
+Apply usa datos proporcionados por el usuario, verifica lo escrito y se detiene antes
+de enviar. La edición del perfil, la generación de respuestas mediante IA, los formularios
+externos y el envío final todavía no están implementados.
 
 ## Preparación en Ubuntu/Linux
 
@@ -169,6 +171,80 @@ Si el formulario ya está abierto, se puede leer directamente, sin volver a abri
 Las etiquetas pueden provenir de `label`, `legend`, `aria-label` o `aria-labelledby`,
 incluidas referencias accesibles a textos ocultos. El resultado describe el paso actual;
 no rellena respuestas, pulsa «Next» ni envía la solicitud.
+
+## Preparar una solicitud con contacto y CV precargado
+
+Configura los datos en el equipo donde corre Firefox. Estos son valores de ejemplo:
+
+```bash
+.venv/bin/rcn-agent configure \
+  --email 'person@example.test' \
+  --phone-country-code '+51' \
+  --phone-number '9XXXXXXXX' \
+  --resume-name 'CV_Architect.pdf'
+```
+
+El archivo se guarda en `~/.local/share/rcn/answers.json` (o el directorio de datos
+configurado), con permisos 600. Una nueva ejecución actualiza solo los datos indicados
+y conserva las respuestas adicionales. El comando informa la ruta y los nombres de
+campos actualizados, sin imprimir sus valores. No necesita conexión a Firefox.
+
+Por defecto, ese CV se aplica a títulos que contengan `arquitecto` o `architect`.
+Puedes cambiar el criterio con `--resume-job-keyword`, repetido para cada alternativa.
+El CV debe existir ya en LinkedIn; se busca su nombre exacto entre opciones de selección
+nativas o con rol `radio`. Si falta, está duplicado, no se reconocen sus controles o
+el puesto no coincide con la regla, el agente se detiene sin elegir otro archivo.
+
+Con Easy Apply abierto:
+
+```bash
+# Planifica solo el paso actual, sin rellenarlo ni avanzar.
+.venv/bin/rcn-agent prepare-application --dry-run
+
+# Completa los pasos conocidos y se detiene en pendientes o revisión final.
+.venv/bin/rcn-agent prepare-application
+
+# También puede abrir Easy Apply cuando aún no está abierto.
+.venv/bin/rcn-agent prepare-application --open --url https://www.linkedin.com/jobs/view/123456789/
+```
+
+El flujo soporta campos de texto, teléfono, correo, número, textarea, select nativo
+y checkbox con respuesta booleana explícita. Selecciona el código telefónico buscando
+en todas las opciones; un código compartido por varios países (como +1) necesita una
+opción exacta para evitar elegir por orden. No se omiten países por el límite de los
+primeros cien. Si falta una respuesta obligatoria, no se modifica ese paso.
+
+Antes de «Next»/«Siguiente»/«Continuar»/«Review», verifica los valores y la validez HTML
+de los campos completados, además de confirmar la selección del CV. Vuelve a localizar
+los controles si la página los renderiza de nuevo. Si no se confirma un cambio de paso,
+se detiene sin reintentar el clic. El límite es de ocho pasos, ajustable con `--max-steps`
+entre 1 y 20. Los controles no soportados quedan pendientes; no se inventan respuestas.
+
+El archivo admite respuestas adicionales por etiqueta de pregunta:
+
+```json
+{
+  "contact": {"email": null, "phone_country_code": null, "phone_number": null},
+  "resume": {"filename": "CV_Architect.pdf", "job_title_contains": ["arquitecto", "architect"]},
+  "answers": {"Years of BIAN experience": null}
+}
+```
+
+Reemplaza `null` únicamente por respuestas que hayas verificado. Las etiquetas se
+comparan sin distinguir mayúsculas, tildes, espacios repetidos o asterisco de obligatorio.
+`--answers-file` permite elegir otro archivo. Las respuestas no se deducen del total
+de años de experiencia del perfil.
+
+Estados relevantes: `ready` en simulación, `needs_answers` con preguntas o CV pendientes,
+`ready_for_review` al llegar al botón final, `next_step_not_confirmed` si no se verificó
+el avance, `needs_action` si falta un único botón de continuación y `step_limit_reached`
+al alcanzar el límite. Todos devuelven `submitted: false`; no se marca la candidatura
+como enviada. El reporte contiene etiquetas, fuentes y nombres de CV, sin los valores
+de contacto escritos. Las opciones visibles de listas pueden incluir correos ya
+ofrecidos por LinkedIn, igual que en `inspect-application`.
+
+## Lectura del perfil
+
 Sin `--url`, se prefiere la pestaña actual si es un recurso compatible. La captura
 del perfil espera hasta 15 segundos a que aparezca el nombre, incluso después de
 que el navegador indique que el documento terminó de cargar. Acepta encabezados
@@ -245,8 +321,8 @@ un navegador lanzado por geckodriver; se verifica con una reconexión en las pru
    datos privados al servicio alojado.
 2. **Perfil profesional:** comparar el perfil capturado con la información verificada
    del CV; preparar propuestas de titular, Acerca de y experiencia con vista previa.
-3. **Preparación de candidaturas:** correspondencia de preguntas y respuestas
-   verificadas, carga del CV, validación de campos y revisión previa al envío.
+3. **Postulación completa:** ampliar los controles de selección, confirmar el envío final
+   con evidencia, evitar duplicados y añadir búsqueda y filtros de vacantes para lotes.
 4. **Interfaz Angular:** panel de conexión, comparación de perfil, bandeja de vacantes
    y seguimiento de candidaturas. El acceso a Firefox seguirá ocurriendo en el equipo
    del usuario, no en el contenedor remoto.

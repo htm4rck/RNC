@@ -13,6 +13,9 @@ const jobFirst = selectors => {
 };
 const jobNormalize = value => value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ').trim().toLowerCase();
+const jobTitleValid = value => !!value && !['hybrid','remote','on-site','onsite','hibrido',
+    'remoto','presencial','full-time','part-time','contract','jornada completa',
+    'easy apply','save','save the job'].includes(jobNormalize(value));
 const jobHeadings = main ? [...main.querySelectorAll('h1,h2,h3,[role="heading"]')]
     .filter(e => jobText(e)) : [];
 const aboutJobLabels = ['about the job','acerca del empleo','acerca del puesto',
@@ -54,10 +57,11 @@ const collectJob = canonicalUrl => {
         ? browserParts[0].trim() : '';
     let title = jobFirst(['.job-details-jobs-unified-top-card__job-title h1', 'h1',
         '[role="heading"][aria-level="1"]', '[data-field="job-title"]']);
+    if (!jobTitleValid(title)) title = '';
     if (title) sources.title = 'title-selector';
     if (!title) {
         const link = [...main.querySelectorAll('a[href]')].find(e => {
-            if (!jobText(e)) return false;
+            if (!jobTitleValid(jobText(e))) return false;
             try {
                 const parsed = new URL(e.href);
                 return parsed.origin === 'https://www.linkedin.com'
@@ -66,11 +70,11 @@ const collectJob = canonicalUrl => {
         });
         if (link) { title = text(link); sources.title = 'job-link'; }
     }
-    if (!title && browserJobTitle) { title = browserJobTitle; sources.title = 'browser-title'; }
+    if (!title && jobTitleValid(browserJobTitle)) { title = browserJobTitle; sources.title = 'browser-title'; }
     if (!title) {
         const candidates = jobParagraphs.filter(e => !e.closest('a'))
             .map(e => ({value: text(e), size: parseFloat(getComputedStyle(e).fontSize)}))
-            .filter(e => e.value.length <= 300).sort((a,b) => b.size - a.size);
+            .filter(e => e.value.length <= 300 && jobTitleValid(e.value)).sort((a,b) => b.size - a.size);
         if (candidates[0]?.size >= 20 && (!candidates[1] || candidates[0].size > candidates[1].size)) {
             title = candidates[0].value;
             sources.title = 'intro-prominent-paragraph';
@@ -89,6 +93,15 @@ const collectJob = canonicalUrl => {
     if (!description && aboutJobHeading) {
         description = jobBodyText(aboutJobHeading);
         if (description) sources.description = 'heading:' + text(aboutJobHeading);
+    }
+    if (!title && description) {
+        const lines = description.split('\n').map(line => line.trim()).filter(Boolean);
+        const intro = lines.findIndex(line => /^(buscamos (un|una)|we are looking for (a|an))$/i.test(line));
+        const role = intro >= 0 ? lines[intro + 1] : '';
+        if (role && role.length <= 200 && jobTitleValid(role)) {
+            title = role;
+            sources.title = 'description-role';
+        }
     }
     const location = jobFirst(['.job-details-jobs-unified-top-card__primary-description-container',
         '.jobs-unified-top-card__bullet', '[data-field="location"]']);
