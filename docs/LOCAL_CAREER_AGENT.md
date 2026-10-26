@@ -140,9 +140,35 @@ abrir la URL directa en otra pestaña. No navega dejando un formulario abierto a
 
 `inspect-job` describe hasta 30 encabezados y botones, los selectores de descripción
 presentes, los nombres de hasta cinco enlaces de empresa y los encabezados/clases
-de diálogos visibles con su número de campos. No incluye el texto de la descripción,
-valores de formularios ni HTML completo. Sirve para ajustar el lector a la estructura
+de diálogos visibles con su número de campos. También incluye el título de la pestaña,
+hasta 15 párrafos de la cabecera con tamaño de fuente, las fuentes de extracción y
+las etiquetas/tipos de campos y acciones de diálogos visibles. No incluye el texto de
+la descripción, valores de formularios ni HTML completo. Sirve para ajustar el lector a la estructura
 que LinkedIn muestre en ese equipo.
+
+La captura de ofertas espera hasta 15 segundos a que carguen título y descripción.
+Además de los selectores antiguos, lee descripciones por los encabezados «About the
+job»/«Acerca del empleo» y sus variantes. Para el título puede usar un enlace a la misma
+vacante, un título de pestaña específico de oferta o un párrafo destacado en la cabecera.
+`field_sources` informa qué alternativa se usó; un encabezado de sección como «Use AI
+to assess how you fit» no se considera título de la oferta.
+
+Easy Apply se reconoce tanto por los marcadores antiguos como por el nombre accesible,
+etiquetas de solicitud o un paso de contacto con campos identificados y botón «Next».
+También se admite un diálogo nuevo con campos que aparezca inmediatamente después
+de pulsar el único botón Easy Apply de esa oferta. Si ya hay un diálogo abierto que no
+se puede identificar, el agente lo conserva y solicita un diagnóstico en lugar de volver
+a pulsar el botón. `detection` explica cómo reconoció el formulario.
+
+Si el formulario ya está abierto, se puede leer directamente, sin volver a abrirlo:
+
+```bash
+.venv/bin/rcn-agent inspect-application
+```
+
+Las etiquetas pueden provenir de `label`, `legend`, `aria-label` o `aria-labelledby`,
+incluidas referencias accesibles a textos ocultos. El resultado describe el paso actual;
+no rellena respuestas, pulsa «Next» ni envía la solicitud.
 Sin `--url`, se prefiere la pestaña actual si es un recurso compatible. La captura
 del perfil espera hasta 15 segundos a que aparezca el nombre, incluso después de
 que el navegador indique que el documento terminó de cargar. Acepta encabezados

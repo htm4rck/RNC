@@ -6,7 +6,9 @@ from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
+from app.local_agent.application_dom import APPLICATION_DOM
 from app.local_agent.browser import require_linkedin_page
+from app.local_agent.job_dom import JOB_DOM
 from app.local_agent.urls import linkedin_url
 
 # No HTML, cookies, localStorage, hidden inputs, or complete page source is exported.
@@ -27,6 +29,8 @@ PROFILE_WAIT_SECONDS = 15
 PROFILE_SCROLL_STEPS = 20
 PROFILE_SCROLL_PAUSE = 0.4
 PROFILE_FIELDS = ("headline", "about", "experience", "education", "skills")
+JOB_WAIT_SECONDS = 15
+APPLICATION_WAIT_SECONDS = 10
 
 _PROFILE_HELPERS = _HELPERS + r"""
 const excluded = e => !!e.closest('aside,nav,footer,[role="contentinfo"],[role="dialog"]');
@@ -319,46 +323,49 @@ def inspect_profile(driver) -> dict:
 
 
 def read_job(driver) -> dict:
-    require_linkedin_page(driver, "job")
-    result = driver.execute_script(_HELPERS + r"""
-        if (!main) return null;
-        return {
-            title: first(main, ['.job-details-jobs-unified-top-card__job-title h1', 'h1']),
-            company: first(main, [
-                '.job-details-jobs-unified-top-card__company-name',
-                '.jobs-unified-top-card__company-name', '[data-field="company"]'
-            ]),
-            location: first(main, [
-                '.job-details-jobs-unified-top-card__primary-description-container',
-                '.jobs-unified-top-card__bullet', '[data-field="location"]'
-            ]),
-            description: first(main, ['#job-details', '.jobs-description__content'])
-                .slice(0, 24000),
-            easy_apply: [...main.querySelectorAll('button')].filter(visible).some(e =>
-                /easy apply|solicitud sencilla/i.test(e.getAttribute('aria-label') || text(e)))
-        };
-    """)
-    if not result or not result["title"] or not result["description"]:
+    expected_url = linkedin_url(driver.current_url, "job")
+    last = None
+
+    def capture(browser):
+        nonlocal last
+        require_linkedin_page(browser, "job")
+        if linkedin_url(browser.current_url, "job") != expected_url:
+            raise RuntimeError("La vacante cambió durante la captura; repite el comando.")
+        last = browser.execute_script(_HELPERS + JOB_DOM + "return collectJob(arguments[0]);", expected_url)
+        return last if last and last["title"] and last["description"] else None
+
+    try:
+        result = WebDriverWait(driver, JOB_WAIT_SECONDS).until(capture)
+    except TimeoutException:
+        missing = [field for field in ("title", "description") if not (last or {}).get(field)]
         raise RuntimeError(
-            "La vacante no está cargada o no se reconoció su descripción. "
+            f"No se reconocieron los campos de la vacante: {', '.join(missing)}. "
             "Ejecuta rcn-agent inspect-job en esa pestaña para diagnosticarla."
-        )
-    return {"url": linkedin_url(driver.current_url, "job"), **result}
+        ) from None
+    return {"url": expected_url, **result}
 
 
 def inspect_job(driver) -> dict:
     """Diagnose the selected job without exporting form values or the page HTML."""
     require_linkedin_page(driver, "job")
-    result = driver.execute_script(_HELPERS + r"""
+    result = driver.execute_script(_HELPERS + JOB_DOM + APPLICATION_DOM + r"""
         const excluded = e => !!e.closest('aside,nav,footer,[role="contentinfo"],[role="dialog"]');
         const describe = e => ({
             tag: e.tagName.toLowerCase(), role: e.getAttribute('role'),
             class: String(e.className).slice(0, 200),
             text: (e.getAttribute('aria-label') || text(e)).slice(0, 180)
         });
+        const job = collectJob(arguments[0]);
         return {
             ready_state: document.readyState,
             main_found: !!main,
+            browser_title: document.title.slice(0, 240),
+            top_paragraphs: jobParagraphs.slice(0, 15).map(e => ({
+                ...describe(e), font_size: getComputedStyle(e).fontSize
+            })),
+            detected_fields: Object.fromEntries(['title','company','location','description'].map(key => [key, {
+                detected: !!job?.[key], source: job?.field_sources[key] || null
+            }])),
             headings: main ? [...main.querySelectorAll('h1,h2,h3,[role="heading"]')]
                 .filter(e => visible(e) && !excluded(e)).slice(0, 30).map(describe) : [],
             buttons: main ? [...main.querySelectorAll('button,[role="button"]')]
@@ -372,23 +379,35 @@ def inspect_job(driver) -> dict:
             company_links: main ? [...main.querySelectorAll('a[href*="/company/"]')]
                 .filter(e => visible(e) && !excluded(e)).slice(0, 5)
                 .map(e => ({text: text(e).slice(0, 160)})) : [],
-            dialogs: [...document.querySelectorAll('[role="dialog"]')].filter(visible)
-                .slice(0, 5).map(e => ({
-                    class: String(e.className).slice(0, 200),
-                    heading: first(e, ['h1','h2','h3','[role="heading"]']).slice(0, 180),
-                    field_count: e.querySelectorAll('input:not([type="hidden"]),select,textarea').length
+            dialogs: appDialogInfos().slice(0, 5).map(info => ({
+                    class: String(info.element.className).slice(0, 200),
+                    heading: info.title.slice(0, 180),
+                    accessible_name: appName(info.element).slice(0, 180),
+                    application_recognized: !!info.recognized,
+                    detection: info.detection,
+                    field_count: info.fields.length,
+                    fields: info.fields.slice(0, 20).map(e => ({label: appQuestion(e), type: e.type || e.getAttribute('role')})),
+                    actions: appActionLabels(info.element).slice(0, 15)
                 }))
         };
-    """)
+    """, linkedin_url(driver.current_url, "job"))
     return {"url": linkedin_url(driver.current_url, "job"), **result}
 
 
 def inspect_application(driver, open_dialog: bool = False) -> dict:
     require_linkedin_page(driver, "job")
     dialogs = application_dialogs(driver)
+    if not dialogs and _visible_dialogs(driver):
+        raise RuntimeError(
+            "Hay un diálogo abierto que aún no se reconoce como formulario de Easy Apply. "
+            "Ejecuta rcn-agent inspect-job sin cerrarlo para diagnosticar sus etiquetas."
+        )
     if not dialogs and open_dialog:
+        before = _visible_dialogs(driver)
         buttons = [
-            element for element in driver.find_elements(By.CSS_SELECTOR, "main button")
+            element for element in driver.find_elements(
+                By.CSS_SELECTOR, 'main button,main [role="button"],[role="main"] button,[role="main"] [role="button"]'
+            )
             if element.is_displayed() and element.is_enabled()
             and any(label in (element.get_attribute("aria-label") or element.text).casefold()
                     for label in ("easy apply", "solicitud sencilla"))
@@ -396,37 +415,25 @@ def inspect_application(driver, open_dialog: bool = False) -> dict:
         if len(buttons) != 1:
             raise RuntimeError("No se encontró un único botón visible de Easy Apply.")
         buttons[0].click()
+
+        def newly_opened_application(browser):
+            require_linkedin_page(browser, "job")
+            opened = [element for element in _visible_dialogs(browser) if element not in before]
+            return application_dialogs(browser, opened)
+
         try:
-            WebDriverWait(driver, 10).until(application_dialogs)
+            dialogs = WebDriverWait(driver, APPLICATION_WAIT_SECONDS).until(newly_opened_application)
         except TimeoutException:
-            raise RuntimeError("No se abrió Easy Apply. Revisa la pestaña de Firefox.") from None
+            raise RuntimeError(
+                "Se pulsó Easy Apply, pero no se pudo reconocer su formulario. "
+                "Si está abierto, déjalo así y ejecuta rcn-agent inspect-job."
+            ) from None
         require_linkedin_page(driver, "job")
-        dialogs = application_dialogs(driver)
     if len(dialogs) != 1:
         raise RuntimeError("Abre un único formulario de Easy Apply o usa --open.")
-    result = driver.execute_script(_HELPERS + r"""
-        const dialog = arguments[0];
-        const label = e => {
-            const labels = e.labels ? [...e.labels].map(text).filter(Boolean) : [];
-            const labelled = (e.getAttribute('aria-labelledby') || '').split(/\s+/)
-                .map(id => text(document.getElementById(id))).filter(Boolean);
-            return labels.join(' ') || e.getAttribute('aria-label')
-                || labelled.join(' ') || e.getAttribute('placeholder') || '';
-        };
-        return {
-            title: first(dialog, ['h1', 'h2', 'h3']),
-            fields: [...dialog.querySelectorAll('input,select,textarea')]
-                .filter(e => visible(e) && !['hidden','password','submit','button']
-                    .includes(e.type)).slice(0, 80).map(e => ({
-                    label: label(e), type: e.type || e.tagName.toLowerCase(),
-                    required: e.required || e.getAttribute('aria-required') === 'true',
-                    options: e.tagName === 'SELECT'
-                        ? [...e.options].slice(0, 100).map(o => o.text) : []
-                })),
-            actions: [...dialog.querySelectorAll('button')].filter(visible)
-                .map(e => e.getAttribute('aria-label') || text(e)).slice(0, 30)
-        };
-    """, dialogs[0])
+    result = driver.execute_script(
+        _HELPERS + APPLICATION_DOM + "return collectApplication(arguments[0]);", dialogs[0]
+    )
     return {
         "url": linkedin_url(driver.current_url, "job"),
         "submitted": False,
@@ -435,10 +442,13 @@ def inspect_application(driver, open_dialog: bool = False) -> dict:
     }
 
 
-def application_dialogs(driver) -> list:
-    selector = (
-        '[role="dialog"].jobs-easy-apply-modal, '
-        '[role="dialog"]:has(.jobs-easy-apply-content)'
+def _visible_dialogs(driver) -> list:
+    return driver.execute_script(
+        _HELPERS + APPLICATION_DOM + "return appDialogInfos().map(info => info.element);"
     )
-    return [element for element in driver.find_elements(By.CSS_SELECTOR, selector)
-            if element.is_displayed()]
+
+
+def application_dialogs(driver, newly_opened: list | None = None) -> list:
+    return driver.execute_script(
+        _HELPERS + APPLICATION_DOM + "return appDialogRoots(arguments[0]);", newly_opened or []
+    )

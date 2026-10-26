@@ -442,6 +442,199 @@ def test_ambiguous_easy_apply_does_not_click(driver):
     assert driver.execute_script("return !!window.clicked") is False
 
 
+@pytest.mark.parametrize("description_label", ["About the job", "Acerca del empleo"])
+def test_sdui_job_reads_paragraph_title_company_link_and_semantic_description(driver, description_label):
+    from app.local_agent.linkedin import read_job
+
+    load_html(driver, f"""
+        <main>
+          <section><a href="https://www.linkedin.com/company/example/">Example Company</a>
+            <p class="l4jk33" style="font-size:24px">Solution Architect</p>
+            <p>Peru</p><button aria-label="Easy Apply to this job">Easy Apply</button>
+          </section>
+          <section><h2>Use AI to assess how you fit</h2><p>Unrelated AI content</p></section>
+          <section><h2>{description_label}</h2><p>Design enterprise integrations.</p>
+            <p>Python and Azure required.</p></section>
+          <section><h2>About the company</h2><p>Unrelated company description</p></section>
+          <footer>Footer noise</footer>
+        </main>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/jobs/view/4481008368/")
+    job = read_job(fixture)
+    assert job["title"] == "Solution Architect"
+    assert job["company"] == "Example Company"
+    assert job["description"] == "Design enterprise integrations.\nPython and Azure required."
+    assert job["field_sources"]["description"] == f"heading:{description_label}"
+    assert job["field_sources"]["title"] == "intro-prominent-paragraph"
+    assert job["easy_apply"] is True
+    assert "Unrelated" not in json.dumps(job)
+
+
+def test_job_uses_selected_job_link_instead_of_unrelated_headings(driver):
+    from app.local_agent.linkedin import read_job
+
+    load_html(driver, """
+        <main><section><a href="https://www.linkedin.com/company/example/">Example Company</a>
+          <a href="https://www.linkedin.com/jobs/view/4481008368/">Solutions Architect</a></section>
+          <section><h2>Use AI to assess how you fit</h2></section>
+          <section><h2>About the job</h2><p>Build integration platforms.</p></section>
+        </main>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/jobs/view/4481008368/")
+    assert read_job(fixture)["title"] == "Solutions Architect"
+
+
+def test_job_waits_for_description_after_header_has_loaded(driver):
+    from app.local_agent.linkedin import read_job
+
+    load_html(driver, '<main><h1>Solution Architect</h1><section id="details"></section></main>')
+    driver.execute_script("""
+        setTimeout(() => document.querySelector('#details').innerHTML =
+            '<h2>About the job</h2><p>Design enterprise systems.</p>', 600);
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/jobs/view/4481008368/")
+    assert read_job(fixture)["description"] == "Design enterprise systems."
+
+
+def test_job_can_use_browser_title_without_mistaking_section_headings_for_job_title(driver):
+    from app.local_agent.linkedin import read_job
+
+    load_html(driver, """
+        <title>(3) Solution Architect | Example Company | LinkedIn</title>
+        <main><p>Job detail</p><section><h2>Use AI to assess how you fit</h2></section>
+          <section><h2>About the job</h2><p>Design systems.</p></section></main>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/jobs/view/4481008368/")
+    job = read_job(fixture)
+    assert job["title"] == "Solution Architect"
+    assert job["company"] == "Example Company"
+    assert job["field_sources"]["title"] == "browser-title"
+
+
+def test_generic_job_search_browser_title_is_not_used_as_job_title(driver, monkeypatch):
+    from app.local_agent import linkedin
+
+    monkeypatch.setattr(linkedin, "JOB_WAIT_SECONDS", 0)
+    load_html(driver, """
+        <title>Jobs in Peru | Search | LinkedIn</title>
+        <main><section><h2>Use AI to assess how you fit</h2></section>
+          <section><h2>About the job</h2><p>Design systems.</p></section></main>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/jobs/view/4481008368/")
+    with pytest.raises(RuntimeError, match="title"):
+        linkedin.read_job(fixture)
+
+
+def test_existing_sdui_application_without_heading_tags_is_recognized_without_click(driver):
+    from app.local_agent.linkedin import inspect_application
+
+    load_html(driver, """
+        <main><button onclick="window.clickedAgain=true">Easy Apply to this job</button></main>
+        <div role="dialog" aria-modal="true" class="l4jlsc l4jlsb">
+          <p>Contact info</p>
+          <label for="email">Email address</label><input id="email" type="email" value="private@example.test">
+          <button onclick="window.nextClicked=true">Next</button>
+        </div>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/jobs/view/4481008368/")
+    form = inspect_application(fixture, open_dialog=True)
+    assert form["title"] == "Contact info"
+    assert form["fields"][0]["label"] == "Email address"
+    assert form["fields"][0]["type"] == "email"
+    assert form["actions"] == ["Next"]
+    assert form["detection"] == "application-labels"
+    assert "private@example.test" not in json.dumps(form)
+    assert driver.execute_script("return !!window.clickedAgain || !!window.nextClicked") is False
+
+
+def test_contact_step_without_a_title_uses_question_and_next_button(driver):
+    from app.local_agent.linkedin import inspect_application
+
+    load_html(driver, """
+        <main>Job detail</main><div role="dialog" class="generated">
+          <label>Email address<input type="email" value="private@example.test"></label>
+          <label>Country<select><option>Peru</option><option>Chile</option></select></label>
+          <button>Next</button>
+        </div>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/jobs/view/4481008368/")
+    form = inspect_application(fixture)
+    assert form["detection"] == "contact-step"
+    assert form["fields"][0]["label"] == "Email address"
+    assert form["fields"][1]["label"] == "Country"
+    assert form["fields"][1]["options"] == ["Peru", "Chile"]
+    assert "private@example.test" not in json.dumps(form)
+
+
+def test_resume_step_recognizes_hidden_native_file_input_without_reading_its_value(driver):
+    from app.local_agent.linkedin import inspect_application
+
+    load_html(driver, """
+        <main>Job detail</main><div role="dialog" class="generated-modal">
+          <p>Resume</p><label for="resume-upload">Upload resume</label>
+          <input id="resume-upload" type="file" style="display:none" accept=".pdf">
+          <button>Next</button>
+        </div>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/jobs/view/4481008368/")
+    form = inspect_application(fixture)
+    assert form["title"] == "Resume"
+    assert form["fields"][0] == {
+        "label": "Upload resume", "type": "file", "required": False, "options": []
+    }
+    assert form["submitted"] is False
+
+
+def test_application_uses_accessible_name_and_hidden_referenced_question_label(driver):
+    from app.local_agent.linkedin import inspect_application
+
+    load_html(driver, """
+        <main>Job detail</main>
+        <span id="app-title" hidden>Apply to Example</span>
+        <span id="phone-label" hidden>Phone number</span>
+        <div role="dialog" aria-labelledby="app-title">
+          <input type="tel" aria-labelledby="phone-label" value="private-phone">
+          <button>Next</button>
+        </div>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/jobs/view/4481008368/")
+    form = inspect_application(fixture)
+    assert form["title"] == "Apply to Example"
+    assert form["fields"][0]["label"] == "Phone number"
+    assert "private-phone" not in json.dumps(form)
+
+
+def test_new_generic_form_is_tied_to_the_easy_apply_click(driver):
+    from app.local_agent.linkedin import inspect_application
+
+    load_html(driver, """
+        <main><button onclick="document.querySelector('[role=dialog]').hidden=false">Easy Apply</button></main>
+        <div role="dialog" hidden class="generated-modal">
+          <label for="availability">Availability</label><input id="availability" type="text">
+          <button onclick="window.sent=true">Submit application</button>
+        </div>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/jobs/view/4481008368/")
+    form = inspect_application(fixture, open_dialog=True)
+    assert form["fields"][0]["label"] == "Availability"
+    assert form["submitted"] is False
+    assert driver.execute_script("return !!window.sent") is False
+
+
+def test_open_unrelated_message_dialog_is_preserved_and_not_reopened(driver):
+    from app.local_agent.linkedin import inspect_application
+
+    load_html(driver, """
+        <main><button onclick="window.clicked=true">Easy Apply</button></main>
+        <div role="dialog"><p>New message</p><label for="message">Message recruiter</label>
+          <textarea id="message">Private draft</textarea><button>Send</button></div>
+    """)
+    fixture = LinkedInFixture(driver, "https://www.linkedin.com/jobs/view/4481008368/")
+    with pytest.raises(RuntimeError, match="diálogo abierto"):
+        inspect_application(fixture, open_dialog=True)
+    assert driver.execute_script("return !!window.clicked") is False
+
+
 def test_job_diagnostic_collects_structure_without_form_values_or_page_bodies(driver):
     from app.local_agent.linkedin import inspect_job
 
