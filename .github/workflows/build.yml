@@ -100,10 +100,7 @@ jobs:
             if [[ "${{ github.event_name }}" == "push" ]]; then
               echo "$image:$ref"
             fi
-            if [[ "${{ github.event_name }}" == "push" && "$ref" == "develop" ]]; then
-              echo "$image:main"
-            fi
-            if [[ "${{ github.event_name }}" == "push" && ( "$ref" == "main" || "$ref" == "develop" ) ]]; then
+            if [[ "${{ github.event_name }}" == "push" && "$ref" == "main" ]]; then
               echo "$image:latest"
             fi
             echo "EOF"
@@ -134,3 +131,18 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha,scope=remote-career-navigator
           cache-to: type=gha,mode=max,scope=remote-career-navigator
+
+  deploy-dev:
+    needs: docker
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger scoped DEV deployment
+        env:
+          PLATFORM_DEPLOY_TOKEN: ${{ secrets.PLATFORM_DEPLOY_TOKEN }}
+        run: |
+          node - <<'NODE'
+          const body={ref:'develop',inputs:{source_repo:process.env.GITHUB_REPOSITORY,source_sha:process.env.GITHUB_SHA}};
+          fetch('https://api.github.com/repos/htm4rck/Tordo.Platform/actions/workflows/deploy-dev.yml/dispatches',{method:'POST',headers:{Authorization:'Bearer '+process.env.PLATFORM_DEPLOY_TOKEN,Accept:'application/vnd.github+json','Content-Type':'application/json'},body:JSON.stringify(body)}).then(response=>{if(!response.ok)throw Error('DEV dispatch failed: '+response.status);}).catch(error=>{console.error(error.message);process.exitCode=1});
+          NODE
+

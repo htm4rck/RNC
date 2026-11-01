@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterOutlet } from '@angular/router';
 import { finalize } from 'rxjs';
@@ -10,6 +10,7 @@ import { CandidateProfileService } from './candidate-profile.service';
   selector: 'rcn-root',
   imports: [ReactiveFormsModule, RouterOutlet],
   templateUrl: './app.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrl: './app.component.css',
 })
 export class AppComponent {
