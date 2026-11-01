@@ -145,4 +145,3 @@ jobs:
           const body={ref:'develop',inputs:{source_repo:process.env.GITHUB_REPOSITORY,source_sha:process.env.GITHUB_SHA}};
           fetch('https://api.github.com/repos/htm4rck/Tordo.Platform/actions/workflows/deploy-dev.yml/dispatches',{method:'POST',headers:{Authorization:'Bearer '+process.env.PLATFORM_DEPLOY_TOKEN,Accept:'application/vnd.github+json','Content-Type':'application/json'},body:JSON.stringify(body)}).then(response=>{if(!response.ok)throw Error('DEV dispatch failed: '+response.status);}).catch(error=>{console.error(error.message);process.exitCode=1});
           NODE
-
