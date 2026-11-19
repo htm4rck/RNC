@@ -13,7 +13,7 @@ Angular y FastAPI conservan el flujo de perfiles existente; la conexión entre l
 y el agente local es la siguiente etapa.
 
 - [Uso del agente local y arquitectura](docs/LOCAL_CAREER_AGENT.md)
-- [Preparación del entorno](README_DEVELOPMENT.md)
+- [Preparación del entorno](https://dev.tordo.io/tecolyt/ui/wiki?path=Z_Archivo%2FMigracion%20documental%202026-11-15%2FRNC%2FREADME_DEVELOPMENT.md)
 
 Las secciones siguientes describen la visión del producto y el roadmap; no representan
 funciones ya implementadas.
@@ -1458,3 +1458,28 @@ INTERNATIONAL JOB
        ↓
 HIGHER INCOME
 ```
+
+<!-- tecolyt:documentacion-base:v1 -->
+
+## Identidad y responsables
+
+Propietario documental: Tordo interno. La asignación nominal del responsable técnico se mantiene en el proyecto; esta migración no asigna cargos ni crea registros de catálogo.
+
+## Mapa del repositorio
+
+`backend/`, `docs/`, `frontend/`. Consultar el detalle por componente en Desarrollo y en los anexos conservados.
+## Por dónde empezar
+
+[Desarrollo](docs/DESARROLLO.md) · [Configuración](docs/CONFIGURACION.md) · [Pruebas](docs/PRUEBAS.md)
+
+## Documentación canónica en la wiki
+
+[Mapa documental en la wiki](https://dev.tordo.io/tecolyt/ui/wiki?path=Gobierno%2FDocumentacion%2FRepositorios%2FRNC%2FIndice.md) · [Referencias de desarrollo](https://dev.tordo.io/tecolyt/ui/wiki?path=Arquitectura%2FEstandares%2FIndice.md)
+
+## Registro documental adicional
+
+| Ruta | Motivo de conservación | Condición |
+|---|---|---|
+| `docs/LOCAL_CAREER_AGENT.md` | Fuente del manifiesto de manuales; preservar hechos y procedencia | Revisión del consumidor o condición de retiro antes de la baja |
+
+El registro corresponde a esta normalización documental. Los archivos de fuente editorial, contratos y herramientas conservan su autoridad hasta migrar sus consumidores; no se consideran otra definición funcional mantenida.
